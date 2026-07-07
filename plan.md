@@ -1,3 +1,30 @@
+## 更新日志
+
+### 2026-07-07 — Phase 1 完成
+
+**已完成：**
+- [x] ChromaDB 知识库 (`kb_manager.py`) — 3 个 collection：code_standards / vuln_patterns / review_history
+- [x] 种子数据 (`kb_seed.py`) — 10 条代码规范 + 10 条 OWASP/CWE 漏洞模式
+- [x] LLM 连接 (`llm_client.py`) — 智谱 GLM-4.5-Air，OpenAI 兼容接口
+- [x] LangGraph 工作流 (`review_graph.py`) — 4 节点线性流转
+  - [x] context_analyzer — RAG 检索知识库上下文
+  - [x] reviewer — 安全 + 质量合并审查（GLM 输出 JSON）
+  - [x] report_generator — 格式化 Markdown 报告
+  - [x] history_recorder — 审查结果自动写入 review_history collection
+- [x] CLI 入口 (`review.py`) — `python review.py <文件路径>`
+- [x] Git 仓库 + 推送 — https://github.com/wudiaidawang/code-review-agent
+- [x] 验收通过：输入 `sample_bad.py`，检出 10 个问题（Bug / 安全 / 代码异味）
+
+**待完成 (Phase 2)：**
+- [ ] github MCP — 获取 PR Diff，需 GitHub Token
+- [ ] embedding 模型 — 当前默认 all-MiniLM-L6-v2，中文匹配弱，换 BAAI/bge-small-zh
+- [ ] Strategy 模式重构 — 按 plan 原设计拆分 UnifiedReviewer → SecurityReviewer + QualityReviewer
+- [ ] 错误处理增强 — LLM 解析失败重试 + RAG 失败降级 + 文件读取异常
+- [ ] 代码规范知识库扩充 — 接入 Google Python Style Guide 完整文本
+- [ ] MCP filesystem 标准化 — 当前直接 open()，改为标准 MCP 协议
+
+---
+
 你的分析非常到位，4个补充点都抓到了Phase 1的**关键风险点**。下面逐一点评，并给出可以直接开始vibecoding的具体指导。
 
 ---
