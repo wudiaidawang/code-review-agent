@@ -1,0 +1,21 @@
+# ChromaDB
+chroma_db/
+
+# 环境变量
+.env
+
+# Claude
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# IDE
+.idea/
+
+# 审查报告（运行时生成）
+*_review_report.md
