@@ -1,5 +1,20 @@
 ## 更新日志
 
+### 2026-07-09 — Phase 2 部分完成
+
+**已完成：**
+- [x] embedding 模型 — 已从默认 `all-MiniLM-L6-v2` 切换为 `BAAI/bge-m3`（中文匹配更强），HF 镜像设为 `hf-mirror.com`
+- [x] GitHub Token — 已配置 `GITHUB_TOKEN` 到 `.env`
+
+**待完成 (Phase 2)：**
+- [ ] github MCP — 获取 PR Diff
+- [ ] Strategy 模式重构 — 按 plan 原设计拆分 UnifiedReviewer → SecurityReviewer + QualityReviewer
+- [ ] 错误处理增强 — LLM 解析失败重试 + RAG 失败降级 + 文件读取异常
+- [ ] 代码规范知识库扩充 — 接入 Google Python Style Guide 完整文本
+- [ ] MCP filesystem 标准化 — 当前直接 open()，改为标准 MCP 协议
+
+---
+
 ### 2026-07-07 — Phase 1 完成
 
 **已完成：**
@@ -14,14 +29,6 @@
 - [x] CLI 入口 (`review.py`) — `python review.py <文件路径>`
 - [x] Git 仓库 + 推送 — https://github.com/wudiaidawang/code-review-agent
 - [x] 验收通过：输入 `sample_bad.py`，检出 10 个问题（Bug / 安全 / 代码异味）
-
-**待完成 (Phase 2)：**
-- [ ] github MCP — 获取 PR Diff，需 GitHub Token
-- [ ] embedding 模型 — 当前默认 all-MiniLM-L6-v2，中文匹配弱，换 BAAI/bge-small-zh
-- [ ] Strategy 模式重构 — 按 plan 原设计拆分 UnifiedReviewer → SecurityReviewer + QualityReviewer
-- [ ] 错误处理增强 — LLM 解析失败重试 + RAG 失败降级 + 文件读取异常
-- [ ] 代码规范知识库扩充 — 接入 Google Python Style Guide 完整文本
-- [ ] MCP filesystem 标准化 — 当前直接 open()，改为标准 MCP 协议
 
 ---
 

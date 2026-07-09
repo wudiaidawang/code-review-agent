@@ -1,8 +1,13 @@
 """ChromaDB 知识库管理 — 代码规范、漏洞模式、审查历史"""
 
 import os
+
+# 国内网络访问 HuggingFace 需走镜像（避免 huggingface.co 连接超时）
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 import chromadb
 from chromadb.config import Settings
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 
 class KnowledgeBase:
@@ -10,6 +15,9 @@ class KnowledgeBase:
 
     def __init__(self, persist_dir: str = "./chroma_db"):
         os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+        self.ef = SentenceTransformerEmbeddingFunction(
+            model_name="BAAI/bge-m3",
+        )
         self.client = chromadb.PersistentClient(
             path=persist_dir,
             settings=Settings(anonymized_telemetry=False),
@@ -24,25 +32,34 @@ class KnowledgeBase:
             self.code_standards = self.client.create_collection(
                 name="code_standards",
                 metadata={"description": "代码规范知识库 (Google Python Style Guide 等)"},
+                embedding_function=self.ef,
             )
         else:
-            self.code_standards = self.client.get_collection("code_standards")
+            self.code_standards = self.client.get_collection(
+                "code_standards", embedding_function=self.ef
+            )
 
         if "vuln_patterns" not in existing:
             self.vuln_patterns = self.client.create_collection(
                 name="vuln_patterns",
                 metadata={"description": "常见漏洞模式 (OWASP Top 10 / CWE)"},
+                embedding_function=self.ef,
             )
         else:
-            self.vuln_patterns = self.client.get_collection("vuln_patterns")
+            self.vuln_patterns = self.client.get_collection(
+                "vuln_patterns", embedding_function=self.ef
+            )
 
         if "review_history" not in existing:
             self.review_history = self.client.create_collection(
                 name="review_history",
                 metadata={"description": "项目历史审查记录"},
+                embedding_function=self.ef,
             )
         else:
-            self.review_history = self.client.get_collection("review_history")
+            self.review_history = self.client.get_collection(
+                "review_history", embedding_function=self.ef
+            )
 
     # ------------------------------------------------------------------
     # 写入

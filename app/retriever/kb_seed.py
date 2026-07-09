@@ -53,6 +53,57 @@ CODE_STANDARDS = [
         "text": "避免使用全局变量。模块级常量使用 UPPER_SNAKE_CASE 命名。",
         "meta": {"source": "Google Python Style Guide", "category": "globals"},
     },
+    # --- Google Python Style Guide 补充要点 ---
+    {
+        "id": "cs_011",
+        "text": "使用 f-string、% 或 str.format() 格式化字符串，避免用 + 拼接多个字符串。在循环中累积字符串应使用列表 + ''.join()，避免 O(n²) 性能问题。",
+        "meta": {"source": "Google Python Style Guide", "category": "strings"},
+    },
+    {
+        "id": "cs_012",
+        "text": "使用隐式 False 判断：用 if not seq 判断空序列，用 if x is None 判断 None。不要用 == 与 None/True/False 比较，应使用 is。",
+        "meta": {"source": "Google Python Style Guide", "category": "conditionals"},
+    },
+    {
+        "id": "cs_013",
+        "text": "嵌套/局部/类的函数（闭包）可用于封装，但嵌套层级不宜过深。优先使用模块级函数和类。",
+        "meta": {"source": "Google Python Style Guide", "category": "functions"},
+    },
+    {
+        "id": "cs_014",
+        "text": "属性访问应使用 @property 装饰器，而非 getX()/setX() 方法。简单属性直接公开，无需无意义的 getter/setter。",
+        "meta": {"source": "Google Python Style Guide", "category": "properties"},
+    },
+    {
+        "id": "cs_015",
+        "text": "函数长度应保持精简，一般不超过 40 行。过长的函数应拆分为多个小函数。",
+        "meta": {"source": "Google Python Style Guide", "category": "function_length"},
+    },
+    {
+        "id": "cs_016",
+        "text": "使用 TODO 注释标记临时代码或待改进处，格式为 TODO(用户名/邮箱): 说明。不要留下无归属的 TODO。",
+        "meta": {"source": "Google Python Style Guide", "category": "comments"},
+    },
+    {
+        "id": "cs_017",
+        "text": "模块、函数、类的 docstring 使用三引号。模块顶部应有描述模块用途的 docstring。公开 API 必须有 docstring。",
+        "meta": {"source": "Google Python Style Guide", "category": "documentation"},
+    },
+    {
+        "id": "cs_018",
+        "text": "使用绝对导入（import x.y.z 或 from x.y import z），避免相对导入。导入模块而非具体的类/函数（除 typing、collections.abc 等例外）。",
+        "meta": {"source": "Google Python Style Guide", "category": "imports"},
+    },
+    {
+        "id": "cs_019",
+        "text": "缩进使用 4 个空格，禁止使用 Tab。续行应对齐或使用悬挂缩进，不要混用。",
+        "meta": {"source": "Google Python Style Guide", "category": "formatting"},
+    },
+    {
+        "id": "cs_020",
+        "text": "使用 enumerate() 代替 range(len(seq)) 遍历带索引的序列。使用 zip() 并行遍历多个序列。使用 dict.items() 遍历字典键值对。",
+        "meta": {"source": "Google Python Style Guide", "category": "iteration"},
+    },
 ]
 
 VULN_PATTERNS = [

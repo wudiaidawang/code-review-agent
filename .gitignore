@@ -1,5 +1,6 @@
 # ChromaDB
 chroma_db/
+chroma_db.bak.*/
 
 # 环境变量
 .env
