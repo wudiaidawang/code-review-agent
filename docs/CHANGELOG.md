@@ -69,3 +69,24 @@
 - `docs/INDEX.md`：随迁移整体重写，反映新 `app/` 结构，标注已迁移与待补齐骨架。
 
 **骨架待补齐（本次仅建目录，未实现）：** `app/core`(Pipeline)、`app/models`(Issue/ReviewContext)、`app/analyzers`、`app/pipeline`、`app/report`、`app/agent`、`app/api`。
+
+---
+
+## 2026-07-09 — Phase 1 Day 1：核心数据模型 + Pipeline 骨架
+
+依据 `_PLAN/AI Code Review Platform — V1 完整任务计划书.md` 开始 Phase 1 Day 1，落地上一条「骨架待补齐」中的 `app/models` 与 `app/core`。采用「先写设计文档 → 再实现」的工作方式（用户要求直接看文档）。
+
+**改了什么：**
+- 新增 `docs/superpowers/specs/2026-07-09-day1-core-models-design.md` — Day 1 设计文档：说明 Issue / ReviewContext / Pipeline 的设计动机（为什么这样设计）、字段、接口、测试策略、验收标准，以及本次的偏差说明。
+- 新增 `app/models/issue.py` — 统一问题模型 `Issue`（dataclass）+ `ISSUE_TYPES` / `SEVERITIES` 常量；`severity_rank()` 排序权重、`to_dict()` 序列化。作为全系统「通用货币」，所有工具输出统一结构。
+- 新增 `app/models/context.py` — `ReviewContext`（Review Mode 公文包）与 `InvestigationContext`（Investigation Mode 公文包）；复杂子类型用宽松类型占位，待对应 Analyzer 当天再细化；均用 `field(default_factory=...)` 规避可变默认参数陷阱。
+- 新增 `app/core/pipeline_step.py` — `PipelineStep(ABC)` 基类；`should_run()` 默认 True（前瞻扩展点），`analyze(context)` 抽象方法（就地改 context，无返回值）。
+- 新增 `app/core/pipeline.py` — `Pipeline` 编排器，按序执行 steps，`should_run` 为 False 时跳过并记入 `strategy_log`。
+- 新增 `tests/test_pipeline.py` — 5 条纯确定性单测（不碰网络）：空 Pipeline、顺序执行、should_run 跳过、step 写入 issues、Issue 严重度排序。`python -m pytest tests/ -v` → 5 passed。
+- `docs/INDEX.md` — 追加上述新文件条目，并把 `app/core`、`app/models` 从「骨架待补齐」移出。
+
+**为什么改：**
+- 新计划书要求 Phase 1 先立地基：统一的 Issue 模型与 Context 让各分析步骤只跟 Context 读写、互不直接调用（解耦、可独立测试），Pipeline 负责编排。这是后续所有 Analyzer（Git/AST/Ruff/Bandit/LLM）接入的前提。
+
+**偏差说明（规范二铁律，如实上报）：**
+- 计划书 Day 1 含「FastAPI `/health` 骨架」一项，本次**未实现**，推迟到 Day 5 与其余 API 路由一并搭建。原因：当前无其他 API 端点，单独起 FastAPI 应用价值低且会引入未使用依赖；设计文档已记录此推迟。

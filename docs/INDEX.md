@@ -40,13 +40,36 @@ ChromaDB 知识库管理层。启动设置 HF 镜像（`hf-mirror.com`）；embe
 ### `app/utils/code_lines.py`
 - `add_line_numbers(code)` — 给代码每行加 `行号 |` 前缀，让 LLM 引用准确行号。
 
+### `app/models/issue.py`
+统一问题模型（全系统"通用货币"）。
+- `ISSUE_TYPES` / `SEVERITIES` — 合法的类型与严重程度常量。
+- `class Issue`（dataclass）— 字段：type/severity/file/line/title/reason/fix/source/references。
+  - `severity_rank()` — 严重度排序权重（critical 最大）。
+  - `to_dict()` — 序列化为 dict。
+
+### `app/models/context.py`
+Pipeline / Agent 传递的上下文"公文包"。
+- `class ReviewContext` — repo_url/commit/diff/ast_data/function_info/knowledge_docs/issues/strategy_log/stats；复杂子类型 Phase 1 用占位类型，各 Analyzer 那天再填。
+- `class InvestigationContext` — question/repo_path/collected_info/files_visited/findings/current_hypothesis/step_count/answer（Agent 逻辑 Day 15 实现）。
+
+### `app/core/pipeline_step.py`
+- `class PipelineStep(ABC)` — 分析步骤基类。`should_run(context)` 默认 True（前瞻扩展点）；`analyze(context)` 抽象方法，就地修改 context。
+
+### `app/core/pipeline.py`
+- `class Pipeline` — 按序执行 steps，`should_run` 为 False 时跳过；每步记入 `strategy_log`。返回被填充的 context。
+
 ### 骨架目录（待按计划书补齐）
-`app/core/`（Pipeline / PipelineStep）、`app/models/`（Issue / ReviewContext）、`app/analyzers/`（Git/AST/Ruff/Bandit）、`app/pipeline/`（Aggregator/Strategy/Storage）、`app/report/`、`app/agent/`（双模式 + Investigation）、`app/api/`（FastAPI 路由）——目前仅含 `__init__.py`，尚未实现。
+`app/analyzers/`（Git/AST/Ruff/Bandit）、`app/pipeline/`（Aggregator/Strategy/Storage）、`app/report/`、`app/agent/`（双模式 + Investigation）、`app/api/`（FastAPI 路由）——目前仅含 `__init__.py`，尚未实现。
 
 ## 数据 / 示例
 
 ### `sample_bad.py`
 故意植入多类问题的演示文件（可变默认参数、SQL 注入、硬编码密钥、裸 except、命令注入、除零、全局变量等），用作审查系统的测试夹具。
+
+## 测试
+
+### `tests/test_pipeline.py`
+Pipeline 骨架单测（纯确定性，不碰网络）：空 Pipeline、顺序执行、should_run 跳过、step 写入 issues、Issue 严重度排序。
 
 ## 文档 / 规划
 
@@ -58,6 +81,9 @@ ChromaDB 知识库管理层。启动设置 HF 镜像（`hf-mirror.com`）；embe
 
 ### `docs/CHANGELOG.md`
 修改留痕日志，以工作段为单位，push 时补写。
+
+### `docs/superpowers/specs/`
+各阶段设计文档（spec）。当前含 `2026-07-09-day1-core-models-design.md` — Day 1 核心模型与 Pipeline 骨架的设计动机、字段、接口、测试策略与验收标准。
 
 ### `_PLAN/AI Code Review Platform — V1 完整任务计划书.md`
 现行主计划书（V2 修订版）：双模式 AI 代码审查平台的 23 天 / 3 Phase 详细任务、架构、数据模型与交付清单。
