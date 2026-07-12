@@ -11,12 +11,12 @@ validate_traceability() 是阶段一验收"引用关系有单测"的核心校验
 from dataclasses import dataclass, field
 
 from app.models.change import ChangeSet
+from app.models.diagnostic import Diagnostic
 from app.models.evidence import Evidence
 from app.models.finding import Finding
 from app.models.ids import new_id
 from app.models.issue import Issue
 from app.models.plan import ReviewPlan
-from app.tools.contract import Diagnostic
 
 
 @dataclass
@@ -86,8 +86,9 @@ class ReviewRun:
 
     def validate_traceability(self) -> list[str]:
         """校验可追溯性，返回问题描述列表（空列表=全部通过）。
-        规则：① 每个 Issue 至少关联一条 Evidence；② Issue/Finding 的 evidence_ids
-        不得悬空（必须能在 evidence 存储中找到）。"""
+        规则：① 每个 Issue 至少关联一条 Evidence；② 每个 Finding 至少关联一条
+        Evidence（计划书 M1 验收：静态 Finding 须带对应 Evidence）；③ Issue/Finding
+        的 evidence_ids 不得悬空（必须能在 evidence 存储中找到）。"""
         problems: list[str] = []
         for issue in self.issues:
             if not issue.evidence_ids:
@@ -96,6 +97,8 @@ class ReviewRun:
                 if eid not in self.evidence:
                     problems.append(f"issue {issue.id} 引用了不存在的 Evidence {eid}")
         for f in self.findings.values():
+            if not f.evidence_ids:
+                problems.append(f"finding {f.id} 没有关联任何 Evidence")
             for eid in f.evidence_ids:
                 if eid not in self.evidence:
                     problems.append(f"finding {f.id} 引用了不存在的 Evidence {eid}")

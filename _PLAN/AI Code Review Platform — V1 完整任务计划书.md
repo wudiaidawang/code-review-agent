@@ -115,25 +115,24 @@ Pipeline 默认使用规则策略生成计划；所有运行都保存 `ReviewPla
 
 V1 以 Python、Git 变更审查为唯一垂直切片。每个里程碑都必须可独立演示和回归验证。
 
-### M0：领域模型与受控工作区
+### M0：领域模型与工具契约
 
-**目标：** 定义长期稳定的分析契约，并安全地准备目标仓库。
+**目标：** 定义长期稳定的领域模型与工具调用契约。
 
 - 定义 `ChangeSet`、`FileChange`、`CodeLocation`、`Symbol`、`Evidence`、`Finding`、`Issue`、`ReviewPlan`、`ReviewRun`。
 - 将现有 `ReviewContext` 从“大公文包”收敛为运行元数据和产物索引；保留兼容迁移路径。
-- 建立本地仓库/worktree 管理：路径白名单、大小/文件数限制、超时、清理策略、只读分析约束。
 - 定义所有工具的 `ToolRequest` / `ToolResult`、错误代码和 telemetry 字段。
 
 **验收：**
 
 - 可构造和序列化完整 `ReviewRun`，其所有 Issue 可反向追溯 Evidence。
 - 工具失败不会吞异常：返回结构化诊断，不使后续可运行步骤失效。
-- 不可信仓库不会被导入或执行。
 
 ### M1：确定性事实层
 
 **目标：** 不调用 LLM，也能得到可信的变更、代码结构和静态规则事实。
 
+- **受控工作区**：随 GitTool 一并落地——本地仓库/worktree 管理、路径白名单、大小/文件数限制、超时、清理策略、只读分析约束；是 GitTool 获取变更的前置。
 - `GitTool`：解析 base/head 或本地提交范围，输出结构化 `ChangeSet` 与 hunk/行号映射。
 - `PythonParserTool`：以 Tree-sitter 或 Python AST 实现符号提取；输出函数、类、导入与调用边。
 - `RuffTool` / `BanditTool`：只分析变更关联文件；输出原始诊断和标准化 `Finding`。
@@ -144,7 +143,7 @@ V1 以 Python、Git 变更审查为唯一垂直切片。每个里程碑都必须
 
 - 测试仓库覆盖新增、修改、删除、重命名文件及空 diff。
 - 每一个静态 Finding 带规则来源、代码位置和对应 Evidence。
-- 针对变更文件运行分析，且不执行目标项目代码。
+- 针对变更文件运行分析，且不执行目标项目代码；不可信仓库不会被导入或执行（受控工作区保证）。
 - 纯确定性测试可离线运行。
 
 ### M2：固定 ReviewPlan 与高可信审查闭环
@@ -247,7 +246,7 @@ V1 以 Python、Git 变更审查为唯一垂直切片。每个里程碑都必须
 |---|---|---|---|---|
 | 阶段 0：现有骨架 | 现有 `Issue`、`ReviewContext`、`Pipeline` 与 LLM/RAG 原型 | 清理旧原型的职责边界，建立测试基线 | 可安全重构且不丢失已有行为 | 当前单元测试全部通过；旧模块不再作为后续架构依赖 |
 | 阶段 1：可追溯数据契约（M0） | 阶段 0 的骨架 | `ChangeSet`、`Evidence`、`Finding`、`ReviewPlan`、`ReviewRun` 与 Tool 契约 | 能表达一次审查的输入、证据、计划、结论和失败状态 | 每个 `Issue` 至少可关联一条 Evidence；模型序列化、错误状态和引用关系均有单测 |
-| 阶段 2：确定性事实层（M1） | 阶段 1 的契约 | Git Diff、Python AST、Ruff、Bandit、依赖/搜索工具 | 输入本地 Git 提交范围，输出结构化变更、符号和静态发现 | fixture 覆盖新增/修改/删除/重命名/空 diff；静态 Finding 100% 带路径、行号与规则 ID；不执行目标仓库代码 |
+| 阶段 2：确定性事实层（M1） | 阶段 1 的契约 | 受控工作区 + Git Diff、Python AST、Ruff、Bandit、依赖/搜索工具 | 输入本地 Git 提交范围，输出结构化变更、符号和静态发现 | fixture 覆盖新增/修改/删除/重命名/空 diff；静态 Finding 100% 带路径、行号与规则 ID；不执行目标仓库代码 |
 | 阶段 3：固定审查闭环（M2） | 阶段 2 的事实产物 | 规则式 `ReviewPlanBuilder`、Executor、初步 Aggregator、Markdown/JSON 报告 | 对真实 Python 变更生成可解释、可复现的审查报告 | 相同输入、相同工具版本得到相同计划与确定性结果；报告展示执行/跳过项及理由；端到端集成测试通过 |
 | 阶段 4：LLM 增量语义审查（M3） | 阶段 3 的闭环与证据 | 风险驱动 LLM 调用、RAG、最终 Aggregator 与 Evidence Validator | 发现静态工具难以可靠判断的逻辑/设计风险 | LLM 输出 schema 合法；LLM Issue 的证据绑定率为 100%；LLM/RAG 失败时仍返回确定性结果 |
 | 阶段 5：评测与微调 Planner（M4） | 阶段 4 的运行 trace 与结果 | 标注评测集、规则基线、微调数据、Planner 实验与评测报告 | 小模型选择分析工具，大模型仅处理语义推理 | 报告 Analyzer F1、高风险工具召回、检出率、误报、耗时和 token；与规则基线比较，且不降低高风险工具召回 |

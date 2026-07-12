@@ -135,3 +135,48 @@
 **未纳入本次提交（如实说明）：**
 - 工作区出现未跟踪文件 `AGENTS.md`，内容为 `CLAUDE.md` 的旧副本（尚无规范零），疑为工具自动生成的跨 agent 指令镜像。因来源与用途待确认，本次**未提交**，留待与用户确认后处理（更新为镜像 / 纳入 gitignore / 删除）。
 
+---
+
+## 2026-07-12 — 清理旧原型 + 阶段一代码审查修复（分层/校验/文档一致性）
+
+紧接上一条提交（c7326cc）之后的一段工作：先按"计划书用到的留、没用到的删"清理旧原型，再落实一轮对阶段一的代码审查意见。
+
+**1. 删除旧原型（计划书不再使用的路径）：**
+- 删除 `app/reviewers/multi_reviewer.py` 及整个 `app/reviewers/` 目录（含 `__init__.py`）——旧"多 Reviewer Prompt"审查路径，计划书§七明确不再扩大。
+- 删除 `app/utils/code_lines.py`（`add_line_numbers`）——仅服务旧路径的行号工具，已成孤儿。
+- 保留 `app/tools/llm_tool.py`、`app/retriever/knowledge_base.py`、`app/retriever/kb_seed.py`：计划书§七要求"适配为统一 Tool 契约后复用"，属计划书用到的能力，故不删。
+- 已确认这些旧模块无人 import、删除后 `pytest` 不受影响。
+- 关于 `AGENTS.md`：上一条遗留的未跟踪 `AGENTS.md` 本段已按用户指示删除（用户另有本地 Codex 接入，但以 CLAUDE.md 为唯一权威源，不保留镜像）。该文件从未纳入 git，无版本痕迹。
+
+**2. `Diagnostic` 下沉到领域模型层（修复分层反向依赖）：**
+- 新增 `app/models/diagnostic.py`，将 `ERROR_CODES` 与 `class Diagnostic` 从 `app/tools/contract.py` 迁入。
+- 因 A（下沉 Diagnostic）改 B：`app/tools/contract.py` 删除本地 `ERROR_CODES`/`Diagnostic` 定义，改为 `from app.models.diagnostic import Diagnostic`；`app/models/run.py` 的 `Diagnostic` 导入也由 `app.tools.contract` 改为 `app.models.diagnostic`。
+- 动机：修复前 `app/models/run.py` → `app/tools/contract.py` → `app/models/*`，构成"模型层反向依赖工具层"的分层污染（尚未成 Python 导入环，但会增加耦合）。改后依赖单向 `tools → models`；已 grep 确认 `app/models/` 下无任何 `app.tools` 引用。
+- 因 A 改 B：`tests/test_tool_contract.py` 的 `ERROR_CODES`/`Diagnostic` 导入相应改为从 `app.models.diagnostic` 引入。
+
+**3. `validate_traceability()` 增加 Finding 空证据判错：**
+- `app/models/run.py`：原先只检查 Finding 的 evidence_ids 是否悬空，现补充"Finding 至少关联一条 Evidence"，与 Issue 一致。
+- 动机：计划书 M1 验收明确"每一个静态 Finding 带…对应 Evidence"，空证据的 Finding 应判错。
+- 新增 `tests/test_review_run.py::test_finding_without_evidence_is_flagged`（本阶段测试数 25 → 26）。
+
+**4. 新增 `pytest.ini`：**
+- 内容 `[pytest] testpaths = tests / addopts = -q`。将收集范围钉在 `tests/`，避免 pytest 向上走到 `E:\` 根目录、在部分沙箱因根目录权限被拦而无法收集。
+- 应用户要求删除了其中的中文注释，保持纯 ASCII（规避 configparser 按本地编码读 .ini 时的非 ASCII 报错）。
+
+**5. 计划书文档同步（`_PLAN/AI Code Review Platform — V1 完整任务计划书.md`）：**
+- M0 标题由"领域模型与受控工作区"改为"领域模型与工具契约"；删去 workspace 交付项与"不可信仓库不会被导入或执行"验收项。
+- M1 增加"受控工作区（随 GitTool 落地）"交付项，并把"不可信仓库不会被导入或执行（受控工作区保证）"并入 M1 验收。
+- "M0—M5 实施顺序"表：阶段 2 的新增交付补上"受控工作区"。
+- 动机：文档与已确认方案（workspace 推迟到阶段二）保持一致。
+
+**6. `docs/INDEX.md` 同步（规范一）：**
+- 移除已删的 `multi_reviewer.py`、`code_lines.py` 条目。
+- 新增 `app/models/diagnostic.py`、`pytest.ini` 条目；更新 `app/tools/contract.py`（Diagnostic 改由 models 层导入）、`app/models/run.py`（validate 覆盖 Finding）、`tests/test_review_run.py` 条目。
+- 给 `llm_tool.py`/`knowledge_base.py`/`kb_seed.py` 标注"⚠️ 旧能力，尚未接入新 Pipeline，非阶段一交付"。
+
+**7. 阶段报告同步（`docs/stages/stage-1-data-contract.md`）：**
+- 文件清单加入 diagnostic.py、pytest.ini；新增"旧能力非本阶段交付"说明；设计决策补第 5 条（模型层不依赖工具层）；验收表加 Finding 证据项；测试结果更新为 26 passed + compileall。
+- 如实记录验证状态差异：本会话沙箱 26 passed + compileall 通过；Codex 沙箱因 E:\ 根权限只跑通 compileall、未能独立复现 pytest 绿色，建议本机/CI 补一次正式测试记录。
+
+**测试：** `python -m pytest` → 26 passed；`python -m compileall app tests` 通过。
+

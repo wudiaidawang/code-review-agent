@@ -4,11 +4,10 @@
 编排层据此可继续；ToolResult 可序列化往返。
 """
 
+from app.models.diagnostic import ERROR_CODES, Diagnostic
 from app.models.evidence import Evidence
 from app.models.finding import Finding
 from app.tools.contract import (
-    ERROR_CODES,
-    Diagnostic,
     Tool,
     ToolRequest,
     ToolResult,

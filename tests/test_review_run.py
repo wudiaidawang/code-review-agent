@@ -43,6 +43,14 @@ def test_issue_without_evidence_is_flagged():
     assert "没有关联任何 Evidence" in problems[0]
 
 
+def test_finding_without_evidence_is_flagged():
+    # 计划书 M1 验收：静态 Finding 必须带对应 Evidence，空 evidence_ids 应判错
+    run = ReviewRun()
+    run.add_finding(Finding(tool="ruff", rule_id="E501", message="line too long"))
+    problems = run.validate_traceability()
+    assert any("finding" in p and "没有关联任何 Evidence" in p for p in problems)
+
+
 def test_dangling_evidence_reference_is_flagged():
     run = ReviewRun()
     run.add_issue(
