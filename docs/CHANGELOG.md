@@ -90,3 +90,48 @@
 
 **偏差说明（规范二铁律，如实上报）：**
 - 计划书 Day 1 含「FastAPI `/health` 骨架」一项，本次**未实现**，推迟到 Day 5 与其余 API 路由一并搭建。原因：当前无其他 API 端点，单独起 FastAPI 应用价值低且会引入未使用依赖；设计文档已记录此推迟。
+
+---
+
+## 2026-07-12 — 规范零(中文输出) + 计划书最终流程图 + 阶段一(M0) 可追溯数据契约
+
+本段工作含三部分：一条新规范、一份计划书附录、以及计划书「阶段一」的完整实现。
+
+**1. 新增规范零（`CLAUDE.md`）：**
+- 在 `CLAUDE.md` 顶部新增「规范零：输出语言」——面向用户的所有输出一律用中文（技术符号除外），优先级最高。
+- 原因：用户为中文母语者，要求以后所有回复用中文，并写入 CLAUDE.md 长期生效。
+- 因 A（加规范零）改 B：`CLAUDE.md` 开头「以下两条规范」改为「以下规范」；并同步 `docs/INDEX.md` 中 CLAUDE.md 条目为「规范零/规范一/规范二」。
+
+**2. 计划书附录 A：项目最终流程图（`_PLAN/AI Code Review Platform — V1 完整任务计划书.md`）：**
+- 在计划书末尾**追加**「附录 A：项目最终流程图（含各层用处）」——九层端到端流程图 + 各层用处速查表；应用户「只准添加、不许修改原文」的要求，未改动任何既有内容。
+- 同一文件中另有用户本人新增的「M0—M5 的实施顺序、阶段交付与验收指标」表与「指标口径与简历表达」小节（非本助手所写，但随本次提交一并纳入，如实标注归属）。
+- 同步 `docs/INDEX.md` 中该计划书条目（补「附录 A」「M0—M5 实施顺序/指标口径」描述）。
+
+**3. 阶段一实现（M0 可追溯数据契约）——依据计划书「阶段 1」行：**
+- 新增 `app/models/ids.py` — `new_id(prefix)` 生成稳定短 id（`ev_`/`fnd_`/`iss_`/`run_`）。
+- 新增 `app/models/location.py` — `CodeLocation` / `Symbol`（含 `SYMBOL_KINDS`），一切事实的定位基础；`to_dict/from_dict`（Symbol 重建嵌套 location）。
+- 新增 `app/models/change.py` — `ChangeSet` / `FileChange` / `Hunk`（含 `CHANGE_TYPES`），变更集契约；递归序列化往返。
+- 新增 `app/models/evidence.py` — `Evidence`（含 `EVIDENCE_KINDS`），可引用事实原子，带 source/location/confidence/reference，默认 id `ev_*`。
+- 新增 `app/models/finding.py` — `Finding`，工具候选发现，带 rule_id 与 `evidence_ids`，默认 id `fnd_*`。
+- 新增 `app/models/plan.py` — `ReviewPlan`（含 `RISK_LEVELS`），字段与计划书 M4 微调 Planner 输出 JSON 对齐。
+- 新增 `app/models/run.py` — `ReviewRun` + `TraceEntry`：按 id 索引的 evidence/findings 存储、`add_*`/`record`/`resolve_evidence`/`validate_traceability`、完整 `to_dict/from_dict`。作为运行级容器，逐步取代旧 `ReviewContext`（本次仅并行引入，未删除旧结构，保留兼容迁移路径）。
+- 新增 `app/tools/contract.py` — Tool 统一契约：`ERROR_CODES`/`TOOL_STATUS`、`Diagnostic`、`ToolRequest`、`ToolResult`（`ok()`/`failure()`/序列化）、`Tool(Protocol)`。约束「工具失败返回结构化诊断、不抛业务异常」。
+- 改动 `app/models/issue.py`：向后兼容追加 `id`（默认 `iss_*`）与 `evidence_ids` 两字段、新增 `from_dict`；顶部 `import app.models.ids.new_id`。既有位置参数构造与 `test_pipeline.py` 不受影响。
+- 新增测试：`tests/test_data_contracts.py`(10) / `tests/test_tool_contract.py`(5) / `tests/test_review_run.py`(5)。`python -m pytest tests/ -q` → **25 passed**（原 5 + 新增 20）。
+- 因 A（Finding 复用严重度取值）改 B 又回退：`finding.py` 起初 `from app.models.issue import SEVERITIES`，发现是未使用导入（将被 Ruff 判 F401），改为删除该 import、仅在注释保留「取值同 issue.SEVERITIES」。
+
+**4. 阶段报告目录（新增 `docs/stages/`）：**
+- 新增 `docs/stages/README.md` — 阶段进度总览表（阶段/里程碑/状态/报告链接），供最终成品回看每阶段交付。
+- 新增 `docs/stages/stage-1-data-contract.md` — 阶段一报告：目标、完成能力、文件清单、设计决策、验收对照、测试结果、已知限制、下一阶段输入。
+- 原因：用户要求「docs 保存每阶段 readme，最终成品能看见每阶段的完成与新增」。
+
+**5. `docs/INDEX.md` 同步（规范一）：**
+- 追加 `app/tools/contract.py`、7 个新模型文件、3 个新测试文件、`docs/stages/` 的条目；更新 `app/models/issue.py`（新增字段）与 `app/models/context.py`（标注为旧结构、逐步被 ReviewRun 取代）条目。
+- 移除 `_PLAN/plan.md` 条目（见第 6 点）。
+
+**6. 删除旧规划 `_PLAN/plan.md`：**
+- 用户已将旧版 `_PLAN/plan.md`（Phase 1/2 更新日志，已被 V1 计划书取代）删除并暂存；随本次提交一并移除，并按规范一同步删掉其 INDEX 条目。
+
+**未纳入本次提交（如实说明）：**
+- 工作区出现未跟踪文件 `AGENTS.md`，内容为 `CLAUDE.md` 的旧副本（尚无规范零），疑为工具自动生成的跨 agent 指令镜像。因来源与用途待确认，本次**未提交**，留待与用户确认后处理（更新为镜像 / 纳入 gitignore / 删除）。
+
