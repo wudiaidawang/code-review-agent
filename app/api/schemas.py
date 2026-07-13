@@ -13,6 +13,21 @@ class ReviewRequest(BaseModel):
 
 # ---- 响应 ----
 
+class InvestigateRequest(BaseModel):
+    repo_path: str = Field(..., description="本地仓库路径")
+    question: str = Field(..., description="关于代码库的问题（中文/英文）")
+
+
+class InvestigateResponse(BaseModel):
+    question: str
+    answer: str
+    evidence: list[dict]
+    files_visited: list[str]
+    findings: list[str]
+    trace: list[str]
+    duration_ms: float
+
+
 class ErrorDetail(BaseModel):
     code: str
     message: str

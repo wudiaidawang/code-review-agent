@@ -9,8 +9,8 @@ from app.pipeline.eval_benchmark import (
 
 
 class TestEvalDataset:
-    def test_load_returns_10_samples(self):
-        samples = load_samples()
+    def test_load_v1_returns_10_samples(self):
+        samples = load_samples(dataset_version="v1")
         assert len(samples) == 10
         for s in samples:
             assert isinstance(s, EvalSample)
@@ -19,8 +19,8 @@ class TestEvalDataset:
             assert "analyzers" in s.ground_truth
             assert "risk_level" in s.ground_truth
 
-    def test_all_samples_have_required_input_fields(self):
-        for s in load_samples():
+    def test_v1_samples_have_required_input_fields(self):
+        for s in load_samples(dataset_version="v1"):
             inp = s.input
             assert "change_summary" in inp
             assert "file_types" in inp
@@ -28,8 +28,18 @@ class TestEvalDataset:
             assert "risk_signals" in inp
             assert "ast_summary" in inp
 
+    def test_v2_samples_have_required_fields(self):
+        """v2 数据集 700 条样本必须都有合法字段。"""
+        samples = load_samples(dataset_version="latest")
+        assert len(samples) >= 500  # 至少有大量样本
+        for s in samples[:20]:  # 抽查前 20 条
+            assert s.id
+            assert s.ground_truth
+            assert "analyzers" in s.ground_truth
+            assert "risk_level" in s.ground_truth
+
     def test_to_json_roundtrip(self):
-        samples = load_samples()
+        samples = load_samples(dataset_version="v1")
         js = to_json(samples)
         data = json.loads(js)
         assert len(data) == 10
@@ -126,7 +136,7 @@ class TestEvalMetrics:
 
 class TestRuleBaseline:
     def test_baseline_returns_10_predictions(self):
-        samples = load_samples()
+        samples = load_samples(dataset_version="v1")
         preds = run_rule_baseline(samples, verbose=False)
         assert len(preds) == 10
         for p in preds:

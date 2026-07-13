@@ -1,21 +1,35 @@
-"""M4 评测数据集 — 版本化样本集，从审查 trace 构建 ground truth
+"""M4 评测数据集 — 版本化样本集，支持手工样本 + JSON 文件加载
 
 格式对齐计划书 M4 微调任务定义：
-输入：变更摘要/文件类型/diff规模/风险特征/AST摘要/已有发现
-输出：analyzers/enable_rag/enable_llm/risk_level/reason_codes
+Review 样本：变更摘要/文件类型/diff规模/风险特征/AST摘要/已有发现 → analyzers/risk_level/reason_codes
+Agent 样本：question → question_type/expected_keywords/expected_tools
 """
 
 import json
+import os
 from dataclasses import dataclass, field
+
+# JSON 数据集路径（相对于项目根目录）
+_DATASET_JSON_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "tests", "__snapshots__", "eval_dataset_v2.json")
 
 
 @dataclass
 class EvalSample:
-    """一条评测样本。"""
+    """一条评测样本（Review 模式）。"""
     id: str
     scenario: str
     input: dict       # change_summary/file_types/diff_size/risk_signals/ast_summary/static_findings
     ground_truth: dict  # analyzers/risk_level/reason_codes
+    mode: str = "review"
+
+
+@dataclass
+class InvestigationEvalSample:
+    """一条评测样本（Investigation 模式）。"""
+    id: str
+    question: str
+    ground_truth: dict  # question_type/expected_keywords/expected_tools
+    mode: str = "investigation"
 
 
 # ---- 样本数据集（手工标注，基于真实审查场景） ----
@@ -194,9 +208,51 @@ _SAMPLES: list[dict] = [
 ]
 
 
-def load_samples() -> list[EvalSample]:
-    """加载评测数据集。"""
-    return [
+def load_samples(mode: str = "review", dataset_version: str = "latest") -> list[EvalSample | InvestigationEvalSample]:
+    """加载评测数据集。
+
+    Args:
+        mode: "review" 只返回 Review 样本；"agent" 只返回 Agent 样本；"all" 返回全部
+        dataset_version: "v1" 强制使用 10 条手工样本；"latest" 优先 v2 JSON
+    """
+    # v1: 强制使用手工样本
+    if dataset_version == "v1":
+        samples = [
+            EvalSample(
+                id=s["id"], scenario=s["scenario"],
+                input=s["input"], ground_truth=s["ground_truth"],
+            )
+            for s in _SAMPLES
+        ]
+        return samples if mode != "agent" else []
+
+    # latest: 优先 JSON 文件
+    if os.path.exists(_DATASET_JSON_PATH):
+        with open(_DATASET_JSON_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        result = []
+        for s in data:
+            if s.get("mode") == "investigation":
+                result.append(InvestigationEvalSample(
+                    id=s["id"],
+                    question=s.get("question", ""),
+                    ground_truth=s.get("ground_truth", {}),
+                ))
+            else:
+                result.append(EvalSample(
+                    id=s["id"],
+                    scenario=s.get("scenario", ""),
+                    input=s.get("input", {}),
+                    ground_truth=s.get("ground_truth", {}),
+                ))
+        if mode == "review":
+            return [s for s in result if isinstance(s, EvalSample)]
+        elif mode == "agent":
+            return [s for s in result if isinstance(s, InvestigationEvalSample)]
+        return result
+
+    # 回退手工样本
+    review_samples = [
         EvalSample(
             id=s["id"],
             scenario=s["scenario"],
@@ -205,6 +261,7 @@ def load_samples() -> list[EvalSample]:
         )
         for s in _SAMPLES
     ]
+    return review_samples if mode != "agent" else []
 
 
 def to_json(samples: list[EvalSample]) -> str:

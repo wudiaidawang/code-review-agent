@@ -1,9 +1,10 @@
-"""CLI 入口 — 命令行代码审查工具。
+"""CLI 入口 — 命令行代码审查 + 代码库探索工具。
 
 用法：
     python -m app.cli review .                        # 审查最近一次提交
     python -m app.cli review . --base HEAD~3 --head HEAD  # 审查最近 3 次提交
     python -m app.cli review . --output report.md     # 输出 Markdown 报告到文件
+    python -m app.cli investigate . "where is the login function?"  # 探索代码库
     python -m app.cli serve                           # 启动 API 服务 (uvicorn)
 """
 
@@ -46,6 +47,32 @@ def cmd_review(args):
     return output
 
 
+def cmd_investigate(args):
+    """探索代码库，回答关于代码结构的问题。"""
+    from app.agent.investigator import InvestigationAgent
+
+    repo_path = os.path.abspath(args.repo)
+    print(f"探索仓库: {repo_path}")
+    print(f"问题: {args.question}\n")
+
+    agent = InvestigationAgent()
+    result = agent.investigate(repo_path, args.question)
+
+    print(f"回答: {result.answer}\n")
+    if result.files_visited:
+        print(f"涉及文件 ({len(result.files_visited)}):")
+        for f in result.files_visited:
+            print(f"  - {f}")
+    if result.evidence:
+        print(f"\n证据 ({len(result.evidence)} 条):")
+        for ev in result.evidence:
+            loc = ev.location
+            loc_str = f"{loc.file}:{loc.start_line}" if loc else "(无位置)"
+            print(f"  [{ev.source}] {loc_str}: {ev.snippet[:120]}")
+    print(f"\n耗时: {result.duration_ms:.0f}ms")
+    return result
+
+
 def cmd_serve(args):
     """启动 FastAPI 服务。"""
     import uvicorn
@@ -75,6 +102,11 @@ def main():
     p_review.add_argument("--json", "-j", nargs="?", const=True, default=None,
                           help="同时输出 JSON 报告（可选路径）")
 
+    # ---- investigate ----
+    p_investigate = sub.add_parser("investigate", help="探索代码库")
+    p_investigate.add_argument("repo", help="仓库路径")
+    p_investigate.add_argument("question", help="关于代码库的问题（中文/英文）")
+
     # ---- serve ----
     p_serve = sub.add_parser("serve", help="启动 API 服务")
     p_serve.add_argument("--host", default="127.0.0.1", help="绑定地址（默认 127.0.0.1）")
@@ -84,6 +116,8 @@ def main():
 
     if args.command == "review":
         cmd_review(args)
+    elif args.command == "investigate":
+        cmd_investigate(args)
     elif args.command == "serve":
         cmd_serve(args)
     else:

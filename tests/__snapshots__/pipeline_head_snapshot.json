@@ -1,6 +1,6 @@
 {
-  "issue_count": 82,
-  "evidence_count": 574,
+  "issue_count": 84,
+  "evidence_count": 616,
   "analyzers": [
     "bandit",
     "dependency",

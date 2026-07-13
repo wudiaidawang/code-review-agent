@@ -7,8 +7,10 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from app.api.schemas import (
-    ReviewRequest, ReviewResponse, RunSummary, RunListResponse,
+    ReviewRequest, ReviewResponse, InvestigateRequest, InvestigateResponse,
+    RunSummary, RunListResponse,
 )
+from app.agent.investigator import InvestigationAgent
 from app.pipeline.review_pipeline import ReviewPipeline
 from app.persistence.store import RunStore
 from app.models.ids import new_id
@@ -16,6 +18,7 @@ from app.models.ids import new_id
 
 store = RunStore()
 pipeline = ReviewPipeline()
+investigator = InvestigationAgent()
 
 
 def register_routes(app):
@@ -58,6 +61,17 @@ def register_routes(app):
 
         store.save(run_id, result)
         return result
+
+    @app.post("/investigate", response_model=InvestigateResponse)
+    async def investigate_codebase(req: InvestigateRequest):
+        """探索代码库，回答关于代码结构的问题。"""
+        try:
+            result = investigator.investigate(req.repo_path, req.question)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail={
+                "code": "INVESTIGATE_FAILED", "message": str(exc),
+            })
+        return result.to_dict()
 
     @app.get("/review/{run_id}", response_model=ReviewResponse)
     async def get_review(run_id: str):

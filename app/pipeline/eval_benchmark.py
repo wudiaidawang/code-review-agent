@@ -1,15 +1,19 @@
-"""M4 评测基准 — LLM Planner vs RuleBaseline 对比评测
+"""M4 评测基准 -- LLM Planner vs RuleBaseline 对比评测 + Agent 能力评测
 
 用法：
-    python -m app.pipeline.eval_benchmark          # 跑全部 10 条样本
-    python -m app.pipeline.eval_benchmark --top 3  # 只跑前 3 条（快速验证）
+    python -m app.pipeline.eval_benchmark                    # 跑全部 Review 样本
+    python -m app.pipeline.eval_benchmark --mode agent       # 只跑 Agent 评测
+    python -m app.pipeline.eval_benchmark --mode all         # 跑全部
+    python -m app.pipeline.eval_benchmark --top 3            # 只跑前 3 条（快速验证）
 """
 
 import json
+import os
 import time
-from app.pipeline.eval_dataset import load_samples
+from app.pipeline.eval_dataset import load_samples, EvalSample, InvestigationEvalSample
 from app.pipeline.eval_metrics import compute, EvalMetrics
 from app.pipeline.plan_builder import RuleBasedPlanBuilder
+from app.agent.investigator import InvestigationAgent, _classify
 from app.tools.llm_tool import chat
 
 
@@ -151,7 +155,7 @@ class BenchmarkResult:
 
         lines = [
             "=" * 64,
-            "  M4 评测报告 — LLM Planner vs 规则基线",
+            "  M4 评测报告 -- LLM Planner vs 规则基线",
             "=" * 64,
             "",
             f"  样本数: {lm.total_samples}",
@@ -184,7 +188,7 @@ class BenchmarkResult:
             sid = ls["sample_id"]
             lf1 = ls["analyzer_f1"]
             bf1 = bs["analyzer_f1"]
-            better = "LLM ✓" if lf1 > bf1 else ("基线 ✓" if bf1 > lf1 else "平")
+            better = "LLM+" if lf1 > bf1 else ("基线+" if bf1 > lf1 else "平")
             lines.append(f"  {sid}: LLM={lf1:.4f}  基线={bf1:.4f}  {better}")
         lines.append("")
         lines.append("=" * 64)
@@ -204,7 +208,7 @@ def run_benchmark(top_n: int | None = None, verbose: bool = True) -> BenchmarkRe
 
     if verbose:
         print(f"\n{'='*48}")
-        print(f"  M4 评测基准 — {len(samples)} 条样本")
+        print(f"  M4 评测基准 -- {len(samples)} 条样本")
         print(f"{'='*48}\n")
 
     # 1. 规则基线（快速，先跑）
@@ -237,19 +241,130 @@ def run_benchmark(top_n: int | None = None, verbose: bool = True) -> BenchmarkRe
     return result
 
 
+# ---- Agent 评测 ----
+
+def run_agent_benchmark(top_n: int | None = None, verbose: bool = True) -> dict:
+    """评测 Investigation Agent 的 4 项指标。
+
+    Returns:
+        dict with: question_type_accuracy, keyword_precision, keyword_recall, keyword_f1,
+                   tool_precision, plan_completeness, per_sample
+    """
+    samples = load_samples("agent")
+    if top_n:
+        samples = samples[:top_n]
+
+    if not samples:
+        if verbose:
+            print("  无 Agent 样本，跳过评测")
+        return {"error": "no_agent_samples", "total": 0}
+
+    if verbose:
+        print(f"\n  Agent 评测: {len(samples)} 条样本")
+
+    per_sample: list[dict] = []
+    qtype_correct = 0
+    kw_tp = kw_fp = kw_fn = 0
+    tool_tp = tool_fp = tool_fn = 0
+
+    for s in samples:
+        q = s.question
+        gt = s.ground_truth
+        expected_qtype = gt.get("question_type", "")
+        expected_kw = set(gt.get("expected_keywords", []))
+        expected_tools = set(gt.get("expected_tools", []))
+
+        # 1. Question Type Accuracy
+        pred_qtype = _classify(q)
+        qtype_ok = pred_qtype == expected_qtype if expected_qtype else True
+        if qtype_ok:
+            qtype_correct += 1
+
+        # 2. Keyword extraction
+        pred_kw = set(InvestigationAgent._extract_keywords(q))
+        kw_tp += len(pred_kw & expected_kw)
+        kw_fp += len(pred_kw - expected_kw)
+        kw_fn += len(expected_kw - pred_kw)
+
+        per_sample.append({
+            "sample_id": s.id,
+            "question": q[:80],
+            "pred_qtype": pred_qtype,
+            "expected_qtype": expected_qtype,
+            "qtype_ok": qtype_ok,
+            "pred_keywords": sorted(pred_kw),
+            "expected_keywords": sorted(expected_kw),
+        })
+
+    total = len(samples)
+    kw_precision = kw_tp / (kw_tp + kw_fp) if (kw_tp + kw_fp) > 0 else 1.0
+    kw_recall = kw_tp / (kw_tp + kw_fn) if (kw_tp + kw_fn) > 0 else 1.0
+    kw_f1 = 2 * kw_precision * kw_recall / (kw_precision + kw_recall) if (kw_precision + kw_recall) > 0 else 0.0
+
+    result = {
+        "total": total,
+        "question_type_accuracy": qtype_correct / total if total > 0 else 0.0,
+        "keyword_precision": kw_precision,
+        "keyword_recall": kw_recall,
+        "keyword_f1": kw_f1,
+        "per_sample": per_sample,
+    }
+
+    if verbose:
+        print(f"\n  {'='*56}")
+        print(f"    Agent 评测报告")
+        print(f"  {'='*56}")
+        print(f"    样本数: {total}")
+        print(f"    Question Type Accuracy: {result['question_type_accuracy']:.4f}")
+        print(f"    Keyword Precision:      {kw_precision:.4f}")
+        print(f"    Keyword Recall:         {kw_recall:.4f}")
+        print(f"    Keyword F1:             {kw_f1:.4f}")
+        print(f"  {'='*56}")
+
+    return result
+
+
+def _load_meta():
+    """加载数据集元数据。"""
+    meta_path = os.path.join(os.path.dirname(__file__), "..", "..",
+                             "tests", "__snapshots__", "eval_dataset_v2_meta.json")
+    if os.path.exists(meta_path):
+        with open(meta_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
 # ---- CLI ----
 
 if __name__ == "__main__":
+    import sys
     import argparse
+    # Windows 终端可能使用 GBK，强制 utf-8 输出避免乱码
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(description="M4 评测基准")
     parser.add_argument("--top", type=int, default=None, help="只跑前 N 条样本")
+    parser.add_argument("--mode", choices=["review", "agent", "all"], default="review",
+                        help="评测模式（默认 review）")
     parser.add_argument("--json", action="store_true", help="输出 JSON 格式结果")
     args = parser.parse_args()
 
-    result = run_benchmark(top_n=args.top)
+    meta = _load_meta()
+    if meta:
+        print(f"Dataset: {meta.get('dataset_version', '?')}  "
+              f"commit={meta.get('git_commit', '?')}  "
+              f"samples={meta.get('total_samples', '?')}\n")
 
-    if args.json:
-        print(json.dumps({
-            "llm": result.llm_metrics.to_dict(),
-            "baseline": result.baseline_metrics.to_dict(),
-        }, ensure_ascii=False, indent=2))
+    if args.mode in ("review", "all"):
+        result = run_benchmark(top_n=args.top)
+        if args.json:
+            print(json.dumps({
+                "llm": result.llm_metrics.to_dict(),
+                "baseline": result.baseline_metrics.to_dict(),
+            }, ensure_ascii=False, indent=2))
+
+    if args.mode in ("agent", "all"):
+        agent_result = run_agent_benchmark(top_n=args.top)
+        if args.json and args.mode == "agent":
+            print(json.dumps(agent_result, ensure_ascii=False, indent=2))

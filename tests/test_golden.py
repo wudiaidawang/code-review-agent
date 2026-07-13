@@ -35,7 +35,7 @@ class TestGoldenPlanBuilder:
 
     def test_all_samples_analyzer_f1_above_minimum(self):
         """每条样本的 analyzer F1 ≥ 0.5。"""
-        samples = load_samples()
+        samples = load_samples(dataset_version="v1")
         builder = RuleBasedPlanBuilder()
         failures = []
 
@@ -70,7 +70,7 @@ class TestGoldenPlanBuilder:
 
     def test_average_analyzer_f1_above_baseline(self):
         """10 条样本的平均 analyzer F1 ≥ {baseline}。"""
-        samples = load_samples()
+        samples = load_samples(dataset_version="v1")
         builder = RuleBasedPlanBuilder()
         f1_sum = 0.0
 
@@ -102,7 +102,7 @@ class TestGoldenPlanBuilder:
 
     def test_high_risk_samples_have_bandit(self):
         """高风险样本（含安全 reason_code）Plan 必须包含 bandit。"""
-        samples = load_samples()
+        samples = load_samples(dataset_version="v1")
         builder = RuleBasedPlanBuilder()
         high_risk_codes = {"auth_change", "command_injection", "sql_risk", "deserialization"}
 
@@ -151,7 +151,7 @@ class TestGoldenPlanBuilder:
         - s005: 中文摘要"认证"不匹配英文关键词"auth"
         - s007: 大 diff 规模未作为风险等级提升因子
         """
-        samples = load_samples()
+        samples = load_samples(dataset_version="v1")
         builder = RuleBasedPlanBuilder()
         level_order = {"low": 0, "medium": 1, "high": 2}
 

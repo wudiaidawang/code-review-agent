@@ -11,6 +11,75 @@
 
 ---
 
+## 2026-07-13 — M4 最终评测集（700 条版控数据集 + Agent 评测）
+
+在 V1.1 Investigation Agent 和 CI/CD 完成后，将评测数据集从 10 条手工样本扩充到 700 条，覆盖 Review Pipeline 和 Investigation Agent 的全能力评估。
+
+**1. 评测数据集生成器（`app/pipeline/eval_generator.py`）：**
+- `build_coverage_matrix()` — 分层采样：Python 低风险/单风险/双风险/多风险/JS+TS/Java+Go/非代码/混合/边界共 9 类场景。
+- `generate_texts_batch()` — 批量调 LLM API（20 条/次）生成 change_summary + ast_summary，28 批次完成 550 条。
+- `compute_ground_truth(params)` — **关键设计改进：ground truth 直接从覆盖矩阵参数计算，不依赖文件内容扫描**。避免"参数→假数据→扫描假数据→标准答案"链路的 Bug。参数同时驱动样本生成和标准答案生成。
+- `generate_agent_samples()` — 确定性生成 150 条 Agent 样本（locate/explain/trace/grep 各约 35-42 条）。
+- `compute_coverage_report()` — 自动统计各维度分布和组合覆盖。
+- `save_dataset()` — 版本化保存 JSON + 元数据（git_commit/coverage/prompt_version）。
+
+**2. 数据集更新（`app/pipeline/eval_dataset.py`）：**
+- `load_samples(dataset_version="latest")` — 新增 `dataset_version` 参数，"v1" 强制使用 10 条手工样本，"latest" 优先加载 v2 JSON。
+- 新增 `InvestigationEvalSample` — Agent 模式样本（question/ground_truth）。
+- 向后兼容：所有旧测试通过 `dataset_version="v1"` 保持原有行为。
+
+**3. 评测基准扩展（`app/pipeline/eval_benchmark.py`）：**
+- `--mode review|agent|all` — 支持分别评测 Review 和 Agent。
+- `run_agent_benchmark()` — Agent 评测：Question Type Accuracy + Keyword Precision/Recall/F1。
+- 输出中显示 dataset_version 和 git_commit。
+
+**4. 数据集 JSON（`tests/__snapshots__/`）：**
+- `eval_dataset_v2.json` — 700 条样本（550 Review + 150 Agent）。
+- `eval_dataset_v2_meta.json` — 元数据（版本/commit/覆盖率报告）。
+- Review 分布：low=81 / medium=344 / high=125；覆盖 5 种 Analyzer 组合。
+- Agent 分布：locate=42 / explain=39 / trace=35 / grep=34。
+
+**5. 测试更新（+2 条，172→174）：**
+- `test_m4_eval.py` — `TestEvalDataset` 新增 `test_v2_samples_have_required_fields`（v2 数据集结构校验）。
+- `test_golden.py`、`test_m4_eval.py` — 旧测试改用 `dataset_version="v1"` 保持原断言。
+
+**A → B 因果链：**
+- 因为 `_make_fake_changeset` 只生成文件名不生成内容，`_scan_risks_fast` 只能检测 dependency_change，导致 550 条样本全部退化为 low risk + git only → 改为从参数直接计算 ground truth，参数同时驱动样本文本生成和标准答案。
+- 因为 v2 JSON 文件存在后 `load_samples()` 自动加载 700 条，旧测试中硬编码 10 条的断言失效 → 新增 `dataset_version` 参数，旧测试显式指定 "v1"。
+
+## 2026-07-13 — V1.1 Investigation Agent + CI/CD
+
+在 M5.1 质量工程层完成之后，按计划书实施 V1.1 代码库探索模式（Investigation Agent）和 GitHub Actions 自动测试。
+
+**1. Investigation Agent（`app/agent/`）：**
+- `investigator.py` — 核心调查 Agent：`InvestigationAgent.investigate(repo_path, question)` 执行 git grep → 解析结果 → 收集 Evidence → 读取关键文件 → LLM 合成答案。LLM 不可用时用 grep 原始结果兜底。
+  - `InvestigationResult` — 调查产出 dataclass（question/answer/evidence/files_visited/findings/trace/duration_ms + to_dict）。
+  - `_classify(question)` — 问题类型识别（locate/explain/trace/grep），正则匹配。
+  - `_extract_keywords(question)` — 关键词提取（引号 > 驼峰/下划线标识符 > 英文单词回退）。
+- `__init__.py` — 导出 `InvestigationAgent` 和 `InvestigationResult`。
+- agent 设计原则：受限工具选择 + 证据累积 + 引用式回答，LLM 只用于最终合成。
+
+**2. CLI 扩展（`app/cli.py`）：**
+- 新增 `python -m app.cli investigate <repo> "<question>"` 子命令，输出带文件路径和行号的答案。
+- 更新帮助文档。
+
+**3. API 扩展（`app/api/`）：**
+- `schemas.py` — 新增 `InvestigateRequest`（repo_path/question）和 `InvestigateResponse`。
+- `routes.py` — 新增 `POST /investigate` 端点，运行 InvestigationAgent 返回带证据的答案。
+
+**4. CI/CD（`.github/workflows/test.yml`）：**
+- 3 个 job：`test`（单元+集成，Python 3.10/3.11 矩阵）、`golden`（黄金基线测试）、`recovery`（容错验证）。
+- `fetch-depth: 5` 确保 git history 可用于测试。
+
+**5. 测试（`tests/test_agent.py`，18 条）：**
+- `TestClassify`（6 条）— 中英文问题类型识别。
+- `TestExtractKeywords`（5 条）— 引号/驼峰/下划线/回退/空关键词。
+- `TestInvestigateWithMockLLM`（7 条）— 找得到结果/找不到结果/LLM 崩溃兜底/空关键词提示/结果序列化/Evidence 结构/文件数上限。全部使用 mock LLM，不上网。
+
+**A → B 因果链：**
+- 为了支持 `POST /investigate` 端点，需要在 `routes.py` 模块顶层实例化 `InvestigationAgent()`，因此将其放在 `store`/`pipeline` 同级的模块全局作用域。
+- 为了在 Windows 上正确解析 grep 输出，去掉了 `git grep --heading` 标志，改用标准 `file:line:content` 格式解析（`--heading` 在 Windows 上的输出格式不一致）。
+
 ## 2026-07-13 — 阶段六(M5) 服务化与演示
 
 在 M4 评测体系之上完成最小服务化：FastAPI 接口、CLI 命令行、JSON 文件持久化、Docker 容器化。
