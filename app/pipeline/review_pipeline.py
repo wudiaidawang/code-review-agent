@@ -10,6 +10,7 @@ from app.pipeline.plan_builder import RuleBasedPlanBuilder
 from app.pipeline.executor import ReviewExecutor, ExecutionResult
 from app.pipeline.aggregator import Aggregator
 from app.pipeline.report import ReportGenerator
+from app.pipeline.observability import build_timeline, PipelineTimeline
 from app.core.workspace import WorkspaceConfig
 from app.models.issue import Issue
 from app.models.evidence import Evidence
@@ -28,6 +29,7 @@ class ReviewOutput:
     markdown: str = ""
     json: str = ""
     duration_ms: float = 0.0
+    timeline: PipelineTimeline | None = None
 
 
 class ReviewPipeline:
@@ -127,5 +129,14 @@ class ReviewPipeline:
             output.change_set, plan_dict, output.trace, issues, all_evidence, exec_result.duration_ms,
         )
         output.duration_ms = (time.perf_counter() - t0) * 1000
+
+        # M5.1: 构建性能时间线
+        output.timeline = build_timeline(
+            run_id="",
+            plan=plan_dict,
+            trace=output.trace,
+            tool_results=exec_result.tool_results,
+            total_duration_ms=output.duration_ms,
+        )
 
         return output

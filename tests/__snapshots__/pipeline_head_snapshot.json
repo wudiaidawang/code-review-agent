@@ -1,0 +1,14 @@
+{
+  "issue_count": 82,
+  "evidence_count": 574,
+  "analyzers": [
+    "bandit",
+    "dependency",
+    "git",
+    "python_ast",
+    "ruff"
+  ],
+  "risk_level": "medium",
+  "base_ref": "HEAD~3",
+  "head_ref": "HEAD"
+}

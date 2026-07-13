@@ -52,6 +52,64 @@
 - `app/pipeline/eval_dataset.py` — s009 ground truth 更新为含 dependency。
 - 测试新增 11 条，总计 129 条全绿。
 
+---
+
+## 2026-07-13 — M5.1 可观测性 + 容错增强 + 黄金回归测试
+
+在 M5 服务化之上补齐企业级质量保障：容错隔离、黄金基线、回归快照、性能分解。
+
+**1. 容错增强（`app/pipeline/executor.py`）：**
+- `_safe_call()` — 每个工具调用统一通过此方法，try/except 隔离，单工具崩溃不中断 Pipeline。
+- 崩溃自动转 failed ToolResult + Diagnostic（含 traceback snippet）。
+- `_collect()` — 仅成功时合并 findings/evidence。
+- **验收：注入任意工具崩溃，Pipeline 仍完成，其余工具产出不变。**
+
+**2. 黄金结果测试（`tests/test_golden.py`，6 条）：**
+- `pytest -m golden` — 评测集 PlanBuilder 准确率基线。
+- 每条样本 analyzer F1 ≥ 0.5，平均 F1 ≥ 0.75。
+- 高风险样本（安全 reason_code）强制包含 bandit，不可遗漏。
+- 提供英文关键词内容时可正确识别风险等级。
+- **验收：AI 项目升级模型/Prompt 后立即发现退化。**
+
+**3. 回归快照测试（`tests/test_golden.py`，含 regression marker）：**
+- `pytest -m regression` — 固定 commit 范围 Pipeline 快照对比。
+- Issue 数不骤降（ratio ≥ 0.5）、Analyzer 集合不缩小、同一输入幂等一致。
+- 快照存储于 `tests/__snapshots__/`。
+- **验收：改代码后自动对比，防止引入无声退化。**
+
+**4. 容错测试（`tests/test_pipeline_recovery.py`，10 条）：**
+- 单工具崩溃（bandit/ruff/ast/dependency）→ Pipeline 不崩。
+- 全部静态工具崩溃 → git 产出不变、report 仍生成。
+- 工具返回 failed 状态 → trace 记录失败、未崩溃工具正常。
+- git 失败 → 返回输出（ChangeSet 为空）。
+- 未知工具 → 不阻塞已知工具。
+- 失败工具耗时仍记录。
+- **验收：Pipeline 永不因单点故障中断。**
+
+**5. 性能基准 + 可观测性（`tests/test_performance.py`，9 条 + `app/pipeline/observability.py`）：**
+- `PipelineTimeline` — 逐阶段耗时/状态/产出计数（success_count/failure_count/bottleneck）。
+- `StageMetric` — 单阶段度量。
+- `build_timeline()` — 从 trace + tool_results 构建结构化性能分解。
+- `ascii_bar()` — ASCII 柱状图（面试展示用）。
+- `ReviewOutput.timeline` — 每次审查自动生成。
+- `pytest -m perf` — 快速性能验证（Timeline 生成/阶段覆盖）。
+- `pytest -m slow` — 性能基准断言（Git ≤5s / Pipeline ≤30s）。
+- **验收：每次审查可回答"哪个阶段最慢、哪个工具崩了、产出多少 Finding"。**
+
+**6. `docs/INDEX.md` / CHANGELOG / pytest.ini 同步：**
+- 追加 observability.py / test_pipeline_recovery.py / test_golden.py / test_performance.py 条目。
+- 注册 pytest markers: golden, regression, slow, perf。
+- 测试总数更新为 154 条。
+
+**M5.1 验收对照：**
+- Pipeline Timeline 可在面试中展示各阶段耗时分布。
+- 容错：单工具崩溃 → Pipeline 完成率 100%（10/10 条 recovery 测试全绿）。
+- 黄金：10 条样本 PlanBuilder 平均 F1 ≥ 0.75，高风险 bandit 召回率 100%。
+- 回归：Pipeline 幂等一致性 + 快照防退化。
+- 性能：Git ≤5s，Pipeline ≤30s（对 HEAD~2 范围）。
+
+---
+
 **M5 验收对照：**
 - API 错误使用统一 schema（ErrorResponse `{"error": {"code": "...", "message": "..."}}`）。
 - 审查运行可查询（GET /review/{run_id}、GET /runs）。
