@@ -1,0 +1,12 @@
+model_list:
+  - model_name: qwen-max
+    litellm_params:
+      model: openai/qwen-max
+      api_base: https://ws-6v9xyut4wbxm0e6w.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+      api_key: sk-ws-H.EDMPRMD.UgzO.MEQCICJX70KXTq4jKBHQ-c3LQXuN32GnRKArZi_52McULnFxAiAr9rKB3z52y8zVhaROZSvm_tgPpRH5ET0iGnF_fDHzpQ
+
+general_settings:
+  master_key: sk-local-proxy-key-2026
+
+litellm_settings:
+  drop_params: true

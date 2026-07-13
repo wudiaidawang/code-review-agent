@@ -20,3 +20,6 @@ venv/
 
 # 审查报告（运行时生成）
 *_review_report.md
+
+# 持久化运行记录
+runs/

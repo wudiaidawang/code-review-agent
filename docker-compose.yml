@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ZHIPU_API_KEY=${ZHIPU_API_KEY:-}
+      - ZHIPU_API_URL=${ZHIPU_API_URL:-https://open.bigmodel.cn/api/paas/v4}
+      - ZHIPU_MODEL=${ZHIPU_MODEL:-glm-4.5-air}
+    volumes:
+      - ./runs:/app/runs              # 持久化审查运行记录
+      - ./.env:/app/.env:ro           # API 密钥（只读）
+    command: python -m uvicorn app.api:create_app --factory --host 0.0.0.0 --port 8000

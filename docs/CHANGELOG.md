@@ -11,6 +11,228 @@
 
 ---
 
+## 2026-07-13 — 阶段六(M5) 服务化与演示
+
+在 M4 评测体系之上完成最小服务化：FastAPI 接口、CLI 命令行、JSON 文件持久化、Docker 容器化。
+
+**1. API 层（`app/api/`）：**
+- `__init__.py` — `create_app()` FastAPI 应用工厂。
+- `schemas.py` — Pydantic 请求/响应模型：`ReviewRequest`、`ReviewResponse`、`RunSummary`、`RunListResponse`、`ErrorResponse`（统一 `{"error": {"code": "...", "message": "..."}}` 格式）。
+- `routes.py` — 4 个端点：`POST /review`（提交审查→运行 Pipeline→持久化）、`GET /review/{run_id}`（查询，404 当不存在）、`GET /runs`（历史列表）、`GET /health`（健康检查）。统一 HTTPException 异常处理。
+
+**2. CLI（`app/cli.py`）：**
+- `python -m app.cli review <repo> --base --head --output --json` — 命令行审查，输出 Markdown + 可选 JSON。
+- `python -m app.cli serve --host --port` — 启动 uvicorn API 服务。
+
+**3. 持久化（`app/persistence/store.py`）：**
+- `RunStore` — JSON 文件存储到 `runs/` 目录（save/load/list/delete），按 run_id 索引。
+- `RunRecord` — 运行摘要 dataclass；list 时跳过损坏文件。
+
+**4. Docker 支持：**
+- `Dockerfile` — python:3.11-slim + git/ruff/bandit + API 服务。
+- `docker-compose.yml` — 一键启动，挂载 `runs/` 数据卷和 `.env` 密钥。
+- `requirements.txt` — 完整依赖清单（fastapi/uvicorn/pydantic/openai/tenacity/python-dotenv/ruff/bandit/chromadb）。
+
+**5. 配置更新：**
+- `.gitignore` — 新增 `runs/` 忽略规则。
+
+**6. 测试（新增 18 条，总计 118 条全绿）：**
+- `tests/test_m5_api.py`（18）— Health check、创建 Review/默认 refs/坏仓库 500、按 run_id 查询/404、历史列表、端到端审查本项目、RunStore 存取往返/不存在/列表/删除/损坏文件跳过、Schema 默认值、CLI 集成。
+
+**7. `docs/INDEX.md` / `.gitignore` 同步（规范一）：**
+- 追加 api/、persistence/、cli.py、Dockerfile、docker-compose.yml、requirements.txt、test_m5_api.py 条目。
+- 测试总数更新为 118 条。
+
+**8. 依赖分析工具补完（`app/tools/dependency_tool.py`）：**
+- `DependencyTool` — 实现 Tool 协议，分析 Python import 变更与依赖清单文件变更。
+- `_extract_imports()` — AST 提取 import/from/from_relative 语句，过滤 Python 标准库。
+- 产出两类 Finding：`EXTERNAL_IMPORT`（外部依赖引用）+ `DEP_FILE_CHANGED`（依赖清单文件变更）。
+- `app/pipeline/executor.py` — 注册 dependency 到 `_TOOL_REGISTRY`，在 ruff/bandit 之后执行。
+- `app/pipeline/plan_builder.py` — 规则 1b：依赖清单文件变更时自动加 dependency analyzer。
+- `app/pipeline/eval_dataset.py` — s009 ground truth 更新为含 dependency。
+- 测试新增 11 条，总计 129 条全绿。
+
+**M5 验收对照：**
+- API 错误使用统一 schema（ErrorResponse `{"error": {"code": "...", "message": "..."}}`）。
+- 审查运行可查询（GET /review/{run_id}、GET /runs）。
+- 敏感配置不入库（.env 已 gitignore，docker-compose 只读挂载）。
+- 命令行可发起审查并查看结果（`python -m app.cli review .`）。
+- 一条命令启动服务（`docker-compose up` 或 `python -m app.cli serve`）。
+- 评测基准可复现（M4 的 `python -m app.pipeline.eval_benchmark`）。
+
+---
+
+## 2026-07-13 — 阶段五(M4) 评测体系与微调 Planner 基线
+
+在 M3 闭环之上建立离线评测能力：手工标注数据集 + 指标计算 + LLM Planner vs 规则基线对比基准。
+
+**1. 评测数据集（`app/pipeline/eval_dataset.py`）：**
+- `EvalSample` dataclass — id/scenario/input/ground_truth，字段对齐计划书 M4 微调任务定义。
+- 10 条手工标注样本（s001—s010），覆盖：简单 Python、认证变更、SQL 注入、命令注入、多风险叠加、非 Python 文件、大规模 diff、反序列化、依赖变更、空变更。
+- `load_samples()` / `to_json()` — 加载与序列化。
+
+**2. 评测指标（`app/pipeline/eval_metrics.py`）：**
+- `EvalMetrics` dataclass — analyzer precision/recall/F1、risk_level_accuracy、high_risk_recall（bandit 在高风险样本中的召回）、reason_codes precision/recall/F1。
+- `compute(predictions, ground_truths)` — 聚合计算，含逐样本 per_sample 明细。
+- 高风险定义为 ground truth reason_codes 含 {auth_change, command_injection, sql_risk, deserialization} 或 risk_level=="high"。
+
+**3. 评测基准（`app/pipeline/eval_benchmark.py`）：**
+- `run_llm_planner()` — 调用 `llm_tool.chat()` 为每条样本生成 ReviewPlan 预测（结构化 prompt + JSON 解析 + markdown 包裹容错）。
+- `run_rule_baseline()` — 使用 `RuleBasedPlanBuilder` 生成基线预测。
+- `run_benchmark(top_n)` — 完整双轨评测流程 → `BenchmarkResult`，含 `summary()` Markdown 对比报告。
+- CLI 支持：`python -m app.pipeline.eval_benchmark --top 3 --json`。
+
+**4. 测试（新增 30 条，总计 100 条全绿）：**
+- `tests/test_m4_eval.py`（30）— 全部 mock LLM，不上网：数据集加载/字段校验/序列化往返、集合指标函数、EvalMetrics 完美匹配/空输入/错配/风险等级/高风险召回/逐样本明细/to_dict、规则基线 10 条/非 Python 只有 git/空变更、LLM 解析器 JSON/markdown/非法 JSON、Benchmark mock 集成/JSON 解析失败降级/异常处理/全量流程/summary 生成、Prompt 构造。
+
+**5. `docs/INDEX.md` 同步（规范一）：**
+- 追加 eval_dataset.py / eval_metrics.py / eval_benchmark.py / test_m4_eval.py 条目。
+- 测试总数更新为 100 条。
+
+**M4 验收对照：**
+- 有版本化数据集：eval_dataset.py 含 10 条手工标注样本。
+- 有基线：RuleBasedPlanBuilder 作为确定性基线。
+- 有评测脚本与报告：eval_benchmark.py 产出 LLM vs 基线对比报告。
+- 有指标：Analyzer F1、高风险工具召回、风险等级准确率均已计算。
+- 全部 mock LLM 测试，不依赖网络。
+
+---
+
+## 2026-07-13 — 阶段四(M3) LLM 增量语义审查
+
+在 M2 确定性管道上叠加可选的 LLM 语义审查层，只把静态工具无法判定的问题交给 LLM。
+
+**1. KnowledgeRetriever（`app/pipeline/knowledge_retriever.py`）：**
+- `KnowledgeRetriever(Protocol)` — 可插拔知识检索器协议：`retrieve(query, top_k)`。
+- `NullRetriever` — 空检索器（默认降级策略，RAG 不可用时不影响 Pipeline）。
+- `StaticKnowledge` — 内置 7 条静态知识（OWASP/PEP8/Google Style Guide），关键词匹配检索，条目带 source/version/license。
+
+**2. LLMReviewer（`app/pipeline/llm_reviewer.py`）：**
+- `call_llm` 通过依赖注入，不绑定特定 LLM SDK（方便测试与切换模型）。
+- 结构化 prompt：系统级指令 + 最小必要上下文（diff/symbols/static_findings）。
+- JSON schema 校验：必填字段 location/reason/suggestion；evidence_ids 若给则必须关联已知 evidence。
+- 低置信度降级：confidence < 0.6 → severity 强制降为 "info"。
+- 重试：最多 2 次重试；全部失败后产出失败 Evidence 而非抛异常。
+- `_extract_json()` — 容忍 markdown 代码块包裹/前后杂文本。
+
+**3. ReviewPipeline 集成（`app/pipeline/review_pipeline.py`）：**
+- 构造时可选注入 `llm_reviewer`；为每个变更的 Python 文件（最多 10 个）调用 LLM 审查。
+- LLM 产出 Finding + Evidence 合并到静态结果；LLM 失败不丢失静态结果（M3 验收）。
+- trace 记录每文件 LLM 审查步骤。
+
+**4. 测试（新增 9 条，总计 70 条全绿）：**
+- `tests/test_m3_llm.py`（9）— mock LLM 覆盖：合法输出/空输出/非法 JSON/缺字段被拒/低置信度降级/NullRetriever/StaticKnowledge/Pipeline 集成/LLM 失败保留静态结果。
+- 全部 mock，不依赖网络或真实 LLM。
+
+**5. `docs/INDEX.md` 同步（规范一）：**
+- 追加 knowledge_retriever.py/llm_reviewer.py/test_m3_llm.py 条目。
+- 测试总数更新为 70 条。
+
+**M3 验收对照：**
+- LLM 结论可回链证据：每条 LLM Finding 带 evidence_ids（含自产 Evidence id）。
+- schema 异常有可观测降级：缺字段/非法 JSON → 产出失败 Evidence，不生成高严重度 Issue。
+- LLM 失败时静态结果保留：test_pipeline_static_results_preserved_on_llm_failure。
+
+---
+
+## 2026-07-13 — 阶段三(M2) 固定 ReviewPlan 与高可信审查闭环
+
+紧接阶段二(M1)，实现规则式计划生成、确定性执行、去重聚合与结构化报告。
+
+**1. RuleBasedPlanBuilder（`app/pipeline/plan_builder.py`）：**
+- 基于变更特征确定性选择工具：Python 文件 → ruff+AST（≤50 文件时）；风险信号 → bandit 强制启用。
+- `_RISK_PATTERNS` — 5 类风险信号（auth/sql/command_injection/deserialization/dependency_change）→ reason_code。
+- 最低安全策略：高风险信号时 bandit 不可跳过。
+- 同输入 → 同计划（test_deterministic_same_input）。
+
+**2. ReviewExecutor（`app/pipeline/executor.py`）：**
+- 按 ReviewPlan 执行工具链，`_run_step()` 上下文记录 TraceEntry。
+- 任何工具失败不中断其余工具（降级）。
+- 复用 `_TOOL_REGISTRY` 映射工具名→实例。
+
+**3. Aggregator（`app/pipeline/aggregator.py`）：**
+- 按 (file, rule_id) 分组去重 Finding → Issue。
+- 同组保留全部 evidence_ids，message 去重拼接。
+- 严重度取组内最高。
+
+**4. ReportGenerator（`app/pipeline/report.py`）：**
+- `markdown()` — 4 章结构：Change Summary / Execution Trace / Issues（带证据引用）/ Plan Details。
+- `json_report()` — 完整 JSON（change_set/plan/trace/issues/evidence）。
+
+**5. ReviewPipeline（`app/pipeline/review_pipeline.py`）：**
+- `run(repo_path, base_ref, head_ref)` 一行完成 Plan→Execute→Aggregate→Report。
+- 端到端验证：HEAD~2..HEAD 在 2.4s 内产出 3 Issues + 72 Evidence + 完整 Markdown/JSON 报告。
+
+**6. 测试（新增 12 条，总计 61 条全绿）：**
+- `tests/test_m2_pipeline.py`（12）— PlanBuilder/Aggregator/ReportGenerator 单测 + ReviewPipeline 集成测试 + 幂等性 + 空 diff。
+- 新增覆盖：Plan 确定性、风险信号检测、去重逻辑、报告完整性、端到端幂等。
+
+**7. `docs/INDEX.md` 同步（规范一）：**
+- 追加 plan_builder.py/executor.py/aggregator.py/report.py/review_pipeline.py/test_m2_pipeline.py 条目。
+- 测试总数更新为 61 条；`app/pipeline/` 移出骨架待补齐。
+
+**M2 验收对照：**
+- 同一输入得到相同计划与结果：test_deterministic_same_input + test_idempotent 覆盖。
+- 报告展示变更摘要、执行 trace、Issue 证据与来源：test_markdown_contains_sections 覆盖全部章节。
+- 规则问题不因 LLM/RAG 不可用而丢失：PlanBuilder 纯规则、Executor 纯确定性工具，零 LLM 调用。
+
+---
+
+## 2026-07-13 — 阶段二(M1) 确定性事实层：WorkspaceManager + GitTool + ASTTool + RuffTool + BanditTool + FactCollector
+
+依据计划书 M1 规格，实现第一批确定性工具及编排器，让系统在不调 LLM 的情况下收集可信的变更、符号和静态事实。
+
+**1. WorkspaceManager（`app/core/workspace.py`）：**
+- 新增 `WorkspaceConfig` — 约束配置：allowed_extensions（.py/.pyi/.pyx）、max_file_bytes（2MB）、max_files（500）。
+- 新增 `Workspace` — 隔离工作区实例：`list_files()` 列出合规文件、`read_file()` 只读（含路径越界检查）、`cleanup()` 清理临时目录。
+- 新增 `WorkspaceManager` — `prepare(repo_path, head_ref)` 用 `git archive` 导出目标 ref 的快照到临时目录；对非 git 仓库报错。
+
+**2. GitTool（`app/tools/git_tool.py`）：**
+- 实现 `Tool` 协议，解析 `git diff --name-status`/`--numstat`/`--unified`。
+- 产出 `ChangeSet`（含 FileChange + Hunk 行号映射）+ 逐文件 Evidence。
+
+**3. ASTTool（`app/tools/ast_tool.py`）：**
+- 实现 `Tool` 协议，基于内置 `ast` 模块提取函数/类/导入及调用边。
+- `_SymbolVisitor` walk AST 产出 Symbol 列表；SyntaxError 不崩溃，记录 parse error evidence。
+
+**4. RuffTool（`app/tools/ruff_tool.py`）：**
+- 实现 `Tool` 协议，对指定文件跑 `ruff check --output-format json`。
+- 每条诊断转为 Finding（带 rule_id/位置/evidence_ids）+ Evidence。
+
+**5. BanditTool（`app/tools/bandit_tool.py`）：**
+- 实现 `Tool` 协议，对指定文件跑 `bandit -f json`。
+- 每条安全报警转为 Finding（severity 做 LOW/MEDIUM/HIGH 映射）+ Evidence。
+
+**6. FactCollector（`app/pipeline/fact_collector.py`）：**
+- 编排 WorkspaceManager → GitTool → ASTTool → RuffTool → BanditTool。
+- `FactCollection` 汇总 change_set/symbol_index/findings/evidence/tool_results。
+- `collect(repo_path, base_ref, head_ref)` 一行调用完成全链收集。
+
+**7. 安装 ruff + bandit（pip install）：**
+- 新增依赖 `ruff` 和 `bandit`（Python 静态分析工具）。
+
+**8. 测试（新增 23 条，总计 49 条全绿）：**
+- `tests/test_workspace.py`（5）— WorkspaceManager 单测。
+- `tests/test_git_tool.py`（4）— GitTool 单测。
+- `tests/test_ast_tool.py`（4）— ASTTool 单测。
+- `tests/test_static_tools.py`（6）— RuffTool + BanditTool 单测。
+- `tests/test_fact_collector.py`（4）— 端到端集成测试。
+
+**9. `docs/INDEX.md` 同步（规范一）：**
+- 追加 workspace.py、git_tool.py、ast_tool.py、ruff_tool.py、bandit_tool.py、fact_collector.py 及其测试条目。
+- 测试总数更新为 49 条；`app/pipeline/` 移出骨架待补齐。
+
+**为什么改：**
+- 阶段二(M1) 要求系统不依赖 LLM 即可产出变更、符号和静态发现。本段工作按计划书顺序从 WorkspaceManager 开始，逐工具实现，最后用 FactCollector 串联。端到端验证通过：HEAD~2..HEAD 在 2 秒内收集 24 变更文件、149 符号、35 静态发现、72 条证据。
+
+**M1 验收对照：**
+- fixture 覆盖新增/修改/删除文件 + 空 diff：test_git_tool 覆盖。
+- Finding 100% 带路径、行号与规则 ID：test_fact_collector 验证。
+- 不执行目标仓库代码：WorkspaceManager 用 git archive 只导出文件快照，不 run 任何目标代码。
+- 纯确定性测试可离线运行：49 条测试均无网络依赖。
+
+---
+
 ## 2026-07-09 — 建立文档规范体系（INDEX + CHANGELOG）
 
 **改了什么：**
