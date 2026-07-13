@@ -529,3 +529,36 @@
 
 **测试：** `python -m pytest` → 26 passed；`python -m compileall app tests` 通过。
 
+---
+
+## 当前节点（2026-07-13）
+
+### 项目整体完成度
+
+| 里程碑 | 状态 |
+|--------|------|
+| M0 数据契约 | ✅ |
+| M1 工具层 (Git/AST/Ruff/Bandit/Dependency) | ✅ |
+| M2 固定审查管道 (PlanBuilder→Executor→Aggregator→Report) | ✅ |
+| M3 LLM 语义审查器 + 知识检索 | ✅ |
+| M4 评测体系 + 700 条版控数据集 | ✅ |
+| M5 服务化 (FastAPI + CLI + Docker) | ✅ |
+| M5.1 质量工程 (容错/黄金/回归/性能) | ✅ |
+| V1.1 Investigation Agent + CI/CD | ✅ |
+
+**测试**: 173 条全绿 (`python -m pytest tests/ -q -m "not slow and not golden"`)
+
+### 下次继续入口
+
+1. **抽 50 条人工确认 ground truth** — 计划书要求双层校验，当前 700 条全部由规则生成，尚未人工抽样验证
+2. **复查 LLM 生成失败的 5 批** — `eval_generator.py` 28 批中 5 批 JSON 解析失败，change_summary 为空，可选择性补生成
+3. **扩充非 Python 语言覆盖** — 当前 512/550 是 Python，JS/TS/Java/Go 仅 18 条
+4. **V2 候选** — 前端、GitHub PR inline 评论、多语言插件、人员权限
+
+### 当前仓库状态
+
+- **分支**: master
+- **最后 commit**: `c777516` feat: V1.1 Investigation Agent + CI/CD + M4 最终评测集(700条)
+- **已 push**: 是
+- **数据集**: `tests/__snapshots__/eval_dataset_v2.json` (700 条)
+
