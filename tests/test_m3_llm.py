@@ -111,7 +111,7 @@ class TestLLMReviewer:
 class TestPipelineWithMockLLM:
     """验证 LLM 审查接入 Pipeline 后不破坏确定性结果。"""
 
-    def test_pipeline_with_mock_llm_still_returns_static(self):
+    def test_pipeline_with_mock_llm_still_returns_static(self, fixed_git_diff):
         from app.pipeline.llm_reviewer import LLMReviewer
 
         reviewer = LLMReviewer(call_llm=_mock_valid)
@@ -120,18 +120,14 @@ class TestPipelineWithMockLLM:
         # 确定性结果不受影响
         assert len(output.change_set.get("files", [])) > 0
         assert len(output.markdown) > 0
-        # 如果有 Python 文件变更，trace 应包含 LLM 审查步骤
-        has_py = any(f.get("path", "").endswith(".py") for f in output.change_set.get("files", []))
-        if has_py:
-            has_llm_trace = any("llm_review" in t.step for t in output.trace)
-            assert has_llm_trace
+        # 固定 change_set 含 Python 文件，trace 必须包含 LLM 审查步骤
+        has_llm_trace = any("llm_review" in t.step for t in output.trace)
+        assert has_llm_trace
 
-    def test_pipeline_static_results_preserved_on_llm_failure(self):
+    def test_pipeline_static_results_preserved_on_llm_failure(self, fixed_git_diff):
         """M3 验收：LLM 失败时静态结果不受影响。"""
         reviewer = LLMReviewer(call_llm=_mock_invalid_json)
         pipeline = ReviewPipeline(llm_reviewer=reviewer)
         output = pipeline.run(".", "HEAD~2", "HEAD")
-        # 即使 LLM 失败，静态 findings 仍然在
-        static_issues = [i for i in output.issues if i.source in ("ruff", "bandit", "git")]
-        # 静态结果不应为空（如果变更了 .py 文件）
+        # 即使 LLM 失败（mock_invalid_json），git 证据依然产出
         assert len(output.evidence) > 0

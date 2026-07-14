@@ -100,6 +100,7 @@
 | 回归快照测试（Issue 数不骤降，幂等一致） | ✅ |
 | PipelineTimeline 可观测性 | ✅ |
 | 性能基准（Git≤5s，Pipeline≤30s） | ✅ |
+| **测试稳定性重构（固定 Git Diff 输入）** | ✅ | 2026-07-14 完成，使用 tests/helpers.py + conftest.py fixture 替代 HEAD~N 相对引用 |
 
 ## V1.1 Investigation Agent + CI/CD（计划书外追加）
 

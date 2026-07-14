@@ -11,6 +11,43 @@
 
 ---
 
+## 2026-07-14 — 测试稳定性重构：固定 Git Diff 输入，消除对仓库提交历史的依赖
+
+**动机**：前几轮 CI 修复反复在 `test_pipeline_recovery.py` 和 `test_m3_llm.py` 中加入条件守卫
+（`if "X" in output.plan.get("analyzers", [])`），本质是治标不治本的创可贴。用户明确指出：
+"测试不应该依赖仓库'当前最近几次提交'这种会变化的状态，而应该使用固定的测试输入"。
+
+**改了什么**：
+- `tests/helpers.py`（新文件）— 共享测试工具：定义 `FIXED_CHANGESET`（含 auth.py/utils.py/requirements.txt，
+  确保 plan builder 始终选中 git + python_ast + ruff + bandit + dependency 全部五个工具）、
+  `mock_git_execute`（返回固定 change_set 的 GitTool.execute 替代）、`patch_git_tool(monkeypatch)`。
+- `tests/conftest.py`（新文件）— `fixed_git_diff` fixture，自动 monkeypatch `GitTool.execute` 为固定返回。
+- `tests/test_pipeline_recovery.py` — 重写全部 10 个测试：
+  - 所有调用 `pipeline.run(".", "HEAD~2", "HEAD")` 的测试改为使用 `fixed_git_diff` fixture
+  - 移除全部条件守卫（`if "X" in output.plan.get("analyzers", [])`）
+  - 恢复确定性断言：直接验证 trace 中含失败步骤，不再需要 else 分支
+  - 新增 `_success_tool` 辅助构造器，用于 `test_tool_returns_failure_pipeline_continues` 中
+    隔离 ruff 不受 bandit 失败影响
+- `tests/test_m3_llm.py` — `test_pipeline_with_mock_llm_still_returns_static` 和
+  `test_pipeline_static_results_preserved_on_llm_failure` 使用 `fixed_git_diff` fixture，
+  移除 `has_py` 条件判断，LLM trace 断言始终生效
+
+**为什么改**：`HEAD~2..HEAD` 的相对含义随每次 commit 改变。之前 3 轮 CI 修复都是
+在测试里加 if/else 分支来应对"这次提交有没有 .py 文件"的不确定性，但这让测试逻辑
+越来越复杂，且不能保证覆盖目标场景。固定 change_set 让测试输入从"仓库当前状态"变成
+"预先设计好的场景"，无论何时、在哪个环境运行，plan 都包含全部 5 个工具，断言永远一致。
+
+**A → B 因果链**：
+- 因为 `pytest.monkeypatch` 在 fixture 中替换的是 `GitTool.execute` 类方法 → 所有
+  GitTool 实例（包括 `_TOOL_REGISTRY` 中预创建的）都受影响，无需额外协调
+- 因为固定 change_set 中的文件（auth.py/utils.py）在实际仓库中不存在 → ruff/bandit
+  在恢复测试中会被调用（ws_targets 从 change_set 构建，非空）但找不到文件而失败 →
+  恢复测试中需同时 mock 掉不关心的工具（如 `_success_tool("ruff")`），避免噪音失败
+  干扰被测断言
+- 测试总数保持 173 条全绿，无回归
+
+---
+
 ## 2026-07-14 — 任务 3/4/5：SearchTool + 语言覆盖扩展 + 空样本补生成 + CI 修复
 
 本段工作按 `_PLAN/plan_status.md` 当前优先级执行，完成计划跟踪表中排位 3/4/5 的三项任务，同时修复 CI 上 3 条测试失败。
