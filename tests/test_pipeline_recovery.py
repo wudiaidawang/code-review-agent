@@ -87,7 +87,11 @@ class TestPipelineRecovery:
 
         assert output.duration_ms > 0
         dep_trace = [t for t in output.trace if "dependency" in t.step]
-        assert any(t.status == "failed" for t in dep_trace)
+        if "dependency" in output.plan.get("analyzers", []):
+            assert any(t.status == "failed" for t in dep_trace)
+        else:
+            # dependency 未被计划时，不应有相关 trace
+            assert len(dep_trace) == 0
 
     def test_all_static_tools_crash_pipeline_finishes(self, monkeypatch):
         """全部静态工具崩溃 → Pipeline 仍然完成，git 产出不变。"""

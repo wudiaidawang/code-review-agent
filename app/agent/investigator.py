@@ -6,13 +6,14 @@ LLM 只用于最终合成，工具选择走确定性规则。
 
 import os
 import re
-import subprocess
 import time
 from dataclasses import dataclass, field
 
 from app.models.evidence import Evidence
 from app.models.location import CodeLocation
 from app.tools.llm_tool import chat
+from app.tools.search_tool import SearchTool
+from app.tools.contract import ToolRequest
 
 
 @dataclass
@@ -71,6 +72,7 @@ class InvestigationAgent:
         t0 = time.perf_counter()
         result = InvestigationResult(question=question)
         abs_path = os.path.abspath(repo_path)
+        search = SearchTool()
 
         qtype = _classify(question)
         result.trace.append(f"question_type={qtype}")
@@ -84,56 +86,48 @@ class InvestigationAgent:
 
         result.trace.append(f"keywords={keywords}")
 
-        # Step 1: git grep 定位相关文件
-        try:
-            grep_out = subprocess.run(
-                ["git", "-C", abs_path, "grep", "-n", "-i"] + keywords,
-                capture_output=True, timeout=30,
-            )
-            grep_text = grep_out.stdout.decode("utf-8", errors="replace")
-        except Exception:
-            grep_text = ""
+        # Step 1: 通过 SearchTool 定位相关文件
+        search_result = search.execute(ToolRequest(
+            tool="search", params={
+                "repo_path": abs_path, "query": keywords,
+                "search_type": "grep", "max_results": 50,
+            },
+        ))
 
-        if not grep_text.strip():
+        grep_hits = search_result.artifacts.get("matches", [])
+        grep_text = search_result.artifacts.get("files", [])
+
+        if not grep_hits:
             # 尝试搜索文件名
-            try:
-                ls_out = subprocess.run(
-                    ["git", "-C", abs_path, "ls-files", f"*{keywords[0]}*"],
-                    capture_output=True, timeout=10,
-                )
-                grep_text = ls_out.stdout.decode("utf-8", errors="replace")
-                result.trace.append("fallback: git ls-files")
-            except Exception:
-                pass
+            file_result = search.execute(ToolRequest(
+                tool="search", params={
+                    "repo_path": abs_path, "query": keywords[0],
+                    "search_type": "filename", "max_results": 20,
+                },
+            ))
+            grep_hits = file_result.artifacts.get("matches", [])
+            grep_text = file_result.artifacts.get("files", [])
+            result.trace.append("fallback: filename search")
 
-        if not grep_text.strip():
+        if not grep_hits:
             result.answer = f"在仓库中未找到与 '{' '.join(keywords)}' 相关的结果。"
             result.duration_ms = (time.perf_counter() - t0) * 1000
             return result
 
-        result.trace.append(f"grep_hits={len(grep_text.split(chr(10)))}")
+        result.trace.append(f"grep_hits={len(grep_hits)}")
 
-        # Step 2: 解析 grep 输出，收集文件列表
+        # Step 2: 解析搜索结果，收集文件列表
         files_seen: set[str] = set()
         evidence_snippets: list[tuple[str, int, str]] = []  # (file, line, snippet)
 
-        for line in grep_text.split("\n")[:50]:  # 最多 50 行
-            if not line.strip():
+        for match in grep_hits[:50]:
+            fpath = match.get("file", "")
+            lineno = match.get("line", 1)
+            snippet = match.get("snippet", "")
+            if not fpath:
                 continue
-            # git grep -n 格式: "filename:lineno:content"
-            if line.startswith("\x1b") or ":" not in line:
-                continue
-            parts = line.split(":", 2)
-            if len(parts) < 2:
-                continue
-            fpath = parts[0]
-            try:
-                lineno = int(parts[1])
-                snippet = parts[2] if len(parts) > 2 else ""
-            except ValueError:
-                continue  # 无法解析行号，跳过
             files_seen.add(fpath)
-            evidence_snippets.append((fpath, lineno, snippet.strip()[:200]))
+            evidence_snippets.append((fpath, lineno, snippet[:200]))
 
         result.files_visited = sorted(files_seen)[:20]
 

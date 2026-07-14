@@ -16,6 +16,7 @@ import itertools
 import json
 import os
 import random
+import re
 import sys
 import time
 from collections import Counter, defaultdict
@@ -61,16 +62,18 @@ def _pick(values, count):
 def build_coverage_matrix(target_count: int = 550) -> list[dict]:
     """构建 Review Planner 评测覆盖矩阵。
 
-    分层采样策略：
-      1. Python 低风险 (~80): 无风险信号，变化文件数/行数/依赖文件
-      2. Python 单风险 (~120): 每种风险信号 25 条，变化其他维度
-      3. Python 双风险 (~100): 10 种两两组合 × 10 条
-      4. Python 多风险 (~60): ≥3 信号组合，确保 high risk
-      5. JS/TS (~50): 非 Python 的正常变更
-      6. Java/Go (~30): 多语言覆盖
-      7. 非代码 (~40): 纯配置文件/文档变更
-      8. 混合 (~30): 多语言+配置混合
-      9. 边界/极端 (~40): 0 文件、超大 diff、纯删除
+    分层采样策略（V1.2 语言均衡）：
+      1. Python 低风险 (~50): 无风险信号，变化文件数/行数/依赖文件
+      2. Python 单风险 (~100): 每种风险信号 20 条，变化其他维度
+      3. Python 双风险 (~80): 10 种两两组合 × 8 条
+      4. Python 多风险 (~40): ≥3 信号组合，确保 high risk
+      5. JS (~70): JavaScript 变更，覆盖各种风险信号
+      6. TS (~50): TypeScript 变更，含类型相关风险
+      7. Java (~30): Java 变更，含安全相关风险
+      8. Go (~30): Go 变更，含并发/安全风险
+      9. 非代码 (~40): 纯配置文件/文档变更
+     10. 混合 (~30): 多语言+配置混合
+     11. 边界/极端 (~30): 0 文件、超大 diff、纯删除
     """
     rng = random.Random(SEED)
     samples: list[dict] = []
@@ -100,7 +103,7 @@ def build_coverage_matrix(target_count: int = 550) -> list[dict]:
                 samples.append(p)
         return result
 
-    # ---- 1. Python 低风险 (~80) ----
+    # ---- 1. Python 低风险 (~50) ----
     py_low_base = {
         "language": "Python",
         "file_exts": [".py"],
@@ -116,14 +119,14 @@ def build_coverage_matrix(target_count: int = 550) -> list[dict]:
                 p.update(python_file_count=fc, total_lines=lc, change_type=ct)
                 p["_id"] = _make_review_id(p)
                 samples.append(p)
-                if len([s for s in samples if not s.get("risk_signals")]) >= 80:
+                if len([s for s in samples if not s.get("risk_signals")]) >= 50:
                     break
-            if len([s for s in samples if not s.get("risk_signals")]) >= 80:
+            if len([s for s in samples if not s.get("risk_signals")]) >= 50:
                 break
-        if len([s for s in samples if not s.get("risk_signals")]) >= 80:
+        if len([s for s in samples if not s.get("risk_signals")]) >= 50:
             break
 
-    # ---- 2. Python 单风险 (~120) ----
+    # ---- 2. Python 单风险 (~100) ----
     for sig in RISK_SIGNALS_POOL:
         base = {
             "language": "Python",
@@ -132,7 +135,7 @@ def build_coverage_matrix(target_count: int = 550) -> list[dict]:
             "has_dep_files": sig == "dependency_change",
             "static_findings_count": rng.choice([0, 2, 8]),
         }
-        for _ in range(25):
+        for _ in range(20):
             p = dict(base)
             p["python_file_count"] = rng.choice(FILE_COUNTS[:4])
             p["total_lines"] = rng.choice(LINE_COUNTS)
@@ -140,7 +143,7 @@ def build_coverage_matrix(target_count: int = 550) -> list[dict]:
             p["_id"] = _make_review_id(p)
             samples.append(p)
 
-    # ---- 3. Python 双风险 (~100) ----
+    # ---- 3. Python 双风险 (~80) ----
     two_combos = list(itertools.combinations(RISK_SIGNALS_POOL, 2))
     for combo in two_combos:
         base = {
@@ -150,7 +153,7 @@ def build_coverage_matrix(target_count: int = 550) -> list[dict]:
             "has_dep_files": "dependency_change" in combo,
             "static_findings_count": rng.choice([2, 8]),
         }
-        for _ in range(10):
+        for _ in range(8):
             p = dict(base)
             p["python_file_count"] = rng.choice(FILE_COUNTS[:4])
             p["total_lines"] = rng.choice(LINE_COUNTS)
@@ -158,7 +161,7 @@ def build_coverage_matrix(target_count: int = 550) -> list[dict]:
             p["_id"] = _make_review_id(p)
             samples.append(p)
 
-    # ---- 4. Python 多风险 ≥3 (~60) ----
+    # ---- 4. Python 多风险 >=3 (~40) ----
     multi_combos = list(itertools.combinations(RISK_SIGNALS_POOL, 3)) + \
                    list(itertools.combinations(RISK_SIGNALS_POOL, 4)) + \
                    [tuple(RISK_SIGNALS_POOL)]
@@ -171,51 +174,98 @@ def build_coverage_matrix(target_count: int = 550) -> list[dict]:
             "static_findings_count": rng.choice([8, 20]),
             "change_type": "security_patch",
         }
-        for _ in range(6 if len(combo) <= 3 else 4):
+        for _ in range(4 if len(combo) <= 3 else 2):
             p = dict(base)
             p["python_file_count"] = rng.choice([1, 3, 8])
             p["total_lines"] = rng.choice(LINE_COUNTS[1:])
             p["_id"] = _make_review_id(p)
             samples.append(p)
 
-    # ---- 5. JS/TS (~50) ----
-    for lang, ext, ct in [("JavaScript", ".js", "feature"), ("TypeScript", ".ts", "refactor")]:
-        for _ in range(25):
-            samples.append({
-                "_id": _make_review_id({"language": lang}),
-                "language": lang,
-                "file_exts": [ext],
-                "risk_signals": rng.choice([[], [rng.choice(RISK_SIGNALS_POOL[:3])]]),
-                "python_file_count": 0,
-                "total_lines": rng.choice(LINE_COUNTS[:3]),
-                "change_type": rng.choice([ct, "bug_fix"]),
-                "has_dep_files": False,
-                "static_findings_count": 0,
-            })
+    # ---- 5. JS (~70) ----
+    for i in range(70):
+        risk = rng.choice([[], ["command_injection"], ["auth_change"], ["sql_risk"],
+                          ["command_injection", "auth_change"]])
+        risk_sigs = risk if isinstance(risk, list) else []
+        dep = "dependency_change" in risk_sigs
+        tl = rng.choice(LINE_COUNTS)
+        ct = rng.choice(["feature", "bug_fix", "refactor", "security_patch"])
+        sc = rng.choice([0, 2, 8])
+        samples.append({
+            "_id": _make_review_id({"language": "JavaScript", "idx": i}),
+            "language": "JavaScript",
+            "file_exts": [".js"],
+            "risk_signals": risk_sigs,
+            "python_file_count": 0,
+            "total_lines": tl,
+            "change_type": ct,
+            "has_dep_files": dep,
+            "static_findings_count": sc,
+        })
 
-    # ---- 6. Java/Go (~30) ----
-    for lang, ext in [("Java", ".java"), ("Go", ".go")]:
-        for _ in range(15):
-            samples.append({
-                "_id": _make_review_id({"language": lang}),
-                "language": lang,
-                "file_exts": [ext],
-                "risk_signals": rng.choice([[], [rng.choice(RISK_SIGNALS_POOL[:2])]]),
-                "python_file_count": 0,
-                "total_lines": rng.choice(LINE_COUNTS[:3]),
-                "change_type": rng.choice(CHANGE_TYPES[:3]),
-                "has_dep_files": False,
-                "static_findings_count": 0,
-            })
+    # ---- 6. TS (~50) ----
+    for i in range(50):
+        risk = rng.choice([[], ["auth_change"], ["deserialization"], ["command_injection"],
+                          ["auth_change", "deserialization"]])
+        risk_sigs = risk if isinstance(risk, list) else []
+        dep = "dependency_change" in risk_sigs
+        tl = rng.choice(LINE_COUNTS)
+        ct = rng.choice(["refactor", "feature", "bug_fix", "config_change"])
+        samples.append({
+            "_id": _make_review_id({"language": "TypeScript", "idx": i}),
+            "language": "TypeScript",
+            "file_exts": [".ts"],
+            "risk_signals": risk_sigs,
+            "python_file_count": 0,
+            "total_lines": tl,
+            "change_type": ct,
+            "has_dep_files": dep,
+            "static_findings_count": rng.choice([0, 2]),
+        })
 
-    # ---- 7. 非代码文件 (~40) ----
+    # ---- 7. Java (~30) ----
+    for i in range(30):
+        risk = rng.choice([[], ["deserialization"], ["command_injection"],
+                          ["deserialization", "command_injection"]])
+        risk_sigs = risk if isinstance(risk, list) else []
+        samples.append({
+            "_id": _make_review_id({"language": "Java", "idx": i}),
+            "language": "Java",
+            "file_exts": [".java"],
+            "risk_signals": risk_sigs,
+            "python_file_count": 0,
+            "total_lines": rng.choice(LINE_COUNTS),
+            "change_type": rng.choice(["bug_fix", "feature", "security_patch", "refactor"]),
+            "has_dep_files": False,
+            "static_findings_count": 0,
+        })
+
+    # ---- 8. Go (~30) ----
+    for i in range(30):
+        risk = rng.choice([[], ["command_injection"], ["sql_risk"],
+                          ["command_injection", "sql_risk"]])
+        risk_sigs = risk if isinstance(risk, list) else []
+        dep = "dependency_change" in risk_sigs
+        samples.append({
+            "_id": _make_review_id({"language": "Go", "idx": i}),
+            "language": "Go",
+            "file_exts": [".go"],
+            "risk_signals": risk_sigs,
+            "python_file_count": 0,
+            "total_lines": rng.choice(LINE_COUNTS),
+            "change_type": rng.choice(["feature", "bug_fix", "refactor", "dependency_upgrade"]),
+            "has_dep_files": dep,
+            "static_findings_count": 0,
+        })
+
+    # ---- 9. 非代码文件 (~40) ----
+    noncode_idx = 0
     for ext in NON_CODE_EXTS:
         lang = {"md": "Markdown", "json": "JSON", "yml": "YAML", "toml": "TOML",
                 "txt": "Text", "cfg": "Config", "ini": "Config"}.get(ext.lstrip("."), "Config")
         for _ in range(6):
             dep = ext in [".toml", ".cfg", ".ini"]
             samples.append({
-                "_id": _make_review_id({"language": lang}),
+                "_id": _make_review_id({"language": lang, "ext": ext, "idx": noncode_idx}),
                 "language": lang,
                 "file_exts": [ext],
                 "risk_signals": ["dependency_change"] if dep else [],
@@ -225,13 +275,14 @@ def build_coverage_matrix(target_count: int = 550) -> list[dict]:
                 "has_dep_files": dep,
                 "static_findings_count": 0,
             })
+            noncode_idx += 1
 
-    # ---- 8. 混合 (~30) ----
-    for _ in range(30):
+    # ---- 10. 混合 (~30) ----
+    for i in range(30):
         exts = list(set(rng.choices([".py"] + NON_CODE_EXTS, k=rng.randint(2, 4))))
         has_py = ".py" in exts
         samples.append({
-            "_id": _make_review_id({"language": "Mixed"}),
+            "_id": _make_review_id({"language": "Mixed", "idx": i}),
             "language": "Mixed",
             "file_exts": exts,
             "risk_signals": rng.choice(RISK_SIGNALS_POOL[:3]).split() if rng.random() > 0.5 and has_py else [],
@@ -242,7 +293,7 @@ def build_coverage_matrix(target_count: int = 550) -> list[dict]:
             "static_findings_count": rng.choice([0, 2]) if has_py else 0,
         })
 
-    # ---- 9. 边界/极端 (~40) ----
+    # ---- 11. 边界/极端 (~30) ----
     edge_cases = [
         {"language": "Python", "file_exts": [], "risk_signals": [], "python_file_count": 0,
          "total_lines": 0, "change_type": "bug_fix", "has_dep_files": False, "static_findings_count": 0,
@@ -335,37 +386,60 @@ def _build_text_prompt(params_batch: list[dict]) -> str:
     return "\n".join(lines)
 
 
+_JSON_OBJECT_RE = re.compile(r'\{[^{}]*"change_summary"[^{}]*"ast_summary"[^{}]*\}', re.DOTALL)
+
+
 def _parse_text_response(raw: str, expected_count: int) -> list[dict]:
-    """解析 LLM 返回的批量文本 JSON。"""
+    """解析 LLM 返回的批量文本 JSON。三层兜底：整体解析 → 逐对象正则 → 空占位。"""
     text = raw.strip()
-    # 去掉 markdown 包裹
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:])
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
+
+    # 去掉 markdown 代码块包裹（处理 ```json / ``` / ```` 等变体）
+    md_stripped = text
+    # 去掉开头 ``` 行（可能带语言标记）
+    if md_stripped.startswith("```"):
+        first_newline = md_stripped.find("\n")
+        if first_newline != -1:
+            md_stripped = md_stripped[first_newline + 1:]
+    # 去掉结尾 ```
+    if md_stripped.endswith("```"):
+        md_stripped = md_stripped[:-3].rstrip()
+    text = md_stripped.strip()
+
+    # 第一层：整体 JSON 解析
     try:
         items = json.loads(text)
         if not isinstance(items, list):
-            return [{"change_summary": "", "ast_summary": ""} for _ in range(expected_count)]
-        # 补齐不足
+            raise json.JSONDecodeError("Not a list", text, 0)
         while len(items) < expected_count:
             items.append({"change_summary": "", "ast_summary": ""})
         return items[:expected_count]
-    except json.JSONDecodeError:
-        # 尝试逐行解析或回退
-        fallback = []
-        for _ in range(expected_count):
-            fallback.append({"change_summary": "", "ast_summary": ""})
-        return fallback
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # 第二层：正则逐对象提取（抢救部分样本）
+    objects = _JSON_OBJECT_RE.findall(text)
+    if objects:
+        recovered: list[dict] = []
+        for obj_str in objects:
+            try:
+                obj = json.loads(obj_str)
+                if isinstance(obj, dict) and "change_summary" in obj:
+                    recovered.append(obj)
+            except (json.JSONDecodeError, ValueError):
+                continue
+        while len(recovered) < expected_count:
+            recovered.append({"change_summary": "", "ast_summary": ""})
+        return recovered[:expected_count]
+
+    # 第三层：全空占位
+    return [{"change_summary": "", "ast_summary": ""} for _ in range(expected_count)]
 
 
 def generate_texts_batch(params_batch: list[dict], verbose: bool = True) -> list[dict]:
     """调用 LLM API 为一组参数批量生成文本。失败时返回空占位符。"""
     try:
         prompt = _build_text_prompt(params_batch)
-        raw = chat(prompt, system=_TEXT_SYSTEM, temperature=0.7, max_tokens=4000)
+        raw = chat(prompt, system=_TEXT_SYSTEM, temperature=0.7, max_tokens=8000)
         return _parse_text_response(raw, len(params_batch))
     except Exception as exc:
         if verbose:
@@ -840,7 +914,7 @@ def save_dataset(review_samples: list[dict], agent_samples: list[dict],
 # ---- 主流程 ----
 
 def generate_dataset(review_count: int = 550, agent_count: int = 150,
-                     batch_size: int = 20, verbose: bool = True) -> str:
+                     batch_size: int = 10, verbose: bool = True) -> str:
     """生成完整评测数据集。
 
     Returns:
@@ -934,6 +1008,74 @@ def generate_dataset(review_count: int = 550, agent_count: int = 150,
     return dataset_path
 
 
+# ---- 补生成空样本 ----
+
+def regenerate_empty(dataset_path: str, batch_size: int = 10, verbose: bool = True) -> int:
+    """加载已有数据集，对 change_summary 为空的 review 样本重新生成文本。
+
+    利用 build_coverage_matrix 的确定性（固定 seed），按位置匹配 params → 空样本，
+    只对空样本重新调用 LLM 生成，更新数据集。
+
+    Returns:
+        补生成的样本数
+    """
+    if not os.path.isfile(dataset_path):
+        if verbose:
+            print(f"数据集文件不存在: {dataset_path}")
+        return 0
+
+    with open(dataset_path, "r", encoding="utf-8") as f:
+        all_samples = json.load(f)
+
+    review_samples = [s for s in all_samples if s["mode"] == "review"]
+    agent_samples = [s for s in all_samples if s["mode"] == "investigation"]
+    empty_indices = [
+        i for i, s in enumerate(review_samples)
+        if not s.get("input", {}).get("change_summary", "").strip()
+    ]
+
+    if not empty_indices:
+        if verbose:
+            print("没有需要补生成的空样本。")
+        return 0
+
+    if verbose:
+        print(f"发现 {len(empty_indices)} 条空 change_summary，开始补生成...")
+
+    # 确定性重建覆盖矩阵参数（与原始生成时一致）
+    review_params = build_coverage_matrix(len(review_samples))
+    empty_params = [review_params[i] for i in empty_indices if i < len(review_params)]
+
+    regenerated = 0
+    for bi in range(0, len(empty_params), batch_size):
+        batch = empty_params[bi:bi + batch_size]
+        indices_batch = empty_indices[bi:bi + batch_size]
+        if verbose:
+            print(f"  批次 {bi // batch_size + 1}/{(len(empty_params) - 1) // batch_size + 1} "
+                  f"({len(batch)} 条)...", end=" ", flush=True)
+        texts = generate_texts_batch(batch, verbose=verbose)
+        for j, (text, orig_idx) in enumerate(zip(texts, indices_batch)):
+            new_summary = text.get("change_summary", "")
+            if new_summary:
+                review_samples[orig_idx]["input"]["change_summary"] = new_summary
+                review_samples[orig_idx]["input"]["ast_summary"] = text.get("ast_summary", "")
+                regenerated += 1
+        if verbose:
+            print(f"OK={regenerated}")
+        if bi + batch_size < len(empty_params):
+            time.sleep(0.3)
+
+    if verbose:
+        print(f"补生成完成: {regenerated}/{len(empty_indices)} 条")
+
+    # 更新并保存
+    new_all = review_samples + agent_samples
+    with open(dataset_path, "w", encoding="utf-8") as f:
+        json.dump(new_all, f, ensure_ascii=False, indent=2)
+
+    return regenerated
+
+
 # ---- CLI ----
 
 if __name__ == "__main__":
@@ -945,7 +1087,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="评测数据集生成器")
     parser.add_argument("--review", type=int, default=550, help="Review 样本数（默认 550）")
     parser.add_argument("--agent", type=int, default=150, help="Agent 样本数（默认 150）")
-    parser.add_argument("--batch", type=int, default=20, help="LLM 批量大小（默认 20）")
+    parser.add_argument("--batch", type=int, default=10, help="LLM 批量大小（默认 10）")
+    parser.add_argument("--regenerate", action="store_true",
+                       help="补生成已有数据集中 change_summary 为空的样本（需先有数据集文件）")
     args = parser.parse_args()
 
-    generate_dataset(review_count=args.review, agent_count=args.agent, batch_size=args.batch)
+    if args.regenerate:
+        snap_dir = os.path.join(os.path.dirname(__file__), "..", "..", "tests", "__snapshots__")
+        dataset_path = os.path.join(snap_dir, "eval_dataset_v2.json")
+        regenerate_empty(dataset_path, batch_size=args.batch)
+    else:
+        generate_dataset(review_count=args.review, agent_count=args.agent, batch_size=args.batch)

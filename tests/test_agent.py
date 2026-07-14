@@ -75,11 +75,13 @@ class TestInvestigateWithMockLLM:
 
     def test_investigate_no_results(self):
         """搜索不存在的符号时返回无结果提示。"""
+        import uuid
         agent = InvestigationAgent(call_llm=lambda *a, **kw: "mock")
         repo = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        result = agent.investigate(repo, "zzz_not_exist_xyz_12345")
+        keyword = uuid.uuid4().hex
+        result = agent.investigate(repo, f'"{keyword}"')
 
-        assert result.answer == "" or "未找到" in result.answer or "zzz" in result.answer
+        assert result.answer == "" or "未找到" in result.answer or keyword in result.answer
         assert result.duration_ms > 0
 
     def test_llm_fallback_on_error(self):
