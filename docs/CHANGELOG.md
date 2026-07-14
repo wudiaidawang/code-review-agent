@@ -42,6 +42,8 @@
 - 因为 CI 3 条测试失败阻塞了 master 分支 → 必须先修复才能继续推进任务 3/4/5。
 - 因为新非 Python 样本 _id 全部相同导致去重丢弃 260 条 → 补齐逻辑从 98% Python 的池子中采样，把非 Python 又填回了 Python → 语言分布未改善 → 需在 _id 中加入唯一索引。
 - 因为 `build_coverage_matrix` 使用固定 `random.Random(SEED)` 确定性生成 → `regenerate_empty` 可以按位置精确匹配原始参数，无需在数据集中存储参数副本。
+- **追加修复 (ef1ab64)**：首次修复后 CI 仍报同样错误，本地重建的快照文件（issue_count=27）被提交到 git，CI 环境中 HEAD~3 指向不同 commit 导致快照比较再次失败 → `pipeline_head_snapshot.json` 加入 `.gitignore` 并从 git 追踪中移除（`git rm --cached`），各环境自行生成基线。
+- 因为 `build_coverage_matrix` 使用固定 `random.Random(SEED)` 确定性生成 → `regenerate_empty` 可以按位置精确匹配原始参数，无需在数据集中存储参数副本。
 
 ---
 
