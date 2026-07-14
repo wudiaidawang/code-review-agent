@@ -42,7 +42,14 @@
 - 因为 CI 3 条测试失败阻塞了 master 分支 → 必须先修复才能继续推进任务 3/4/5。
 - 因为新非 Python 样本 _id 全部相同导致去重丢弃 260 条 → 补齐逻辑从 98% Python 的池子中采样，把非 Python 又填回了 Python → 语言分布未改善 → 需在 _id 中加入唯一索引。
 - 因为 `build_coverage_matrix` 使用固定 `random.Random(SEED)` 确定性生成 → `regenerate_empty` 可以按位置精确匹配原始参数，无需在数据集中存储参数副本。
-- **追加修复 (ef1ab64)**：首次修复后 CI 仍报同样错误，本地重建的快照文件（issue_count=27）被提交到 git，CI 环境中 HEAD~3 指向不同 commit 导致快照比较再次失败 → `pipeline_head_snapshot.json` 加入 `.gitignore` 并从 git 追踪中移除（`git rm --cached`），各环境自行生成基线。
+- **追加修复：跨环境快照基线污染问题 (ef1ab64)**：
+  首次 push (fc502d2) 后 CI 仍然 3 errors，邮件告警未消除。排查过程：
+  1. 本地修复时删除了过时的快照文件，测试重新运行后自动生成了新快照（issue_count=27）
+  2. 这个新快照在 `git add` 时被一并提交到了仓库（fc502d2）
+  3. CI 环境 checkout 代码后，快照文件内容为 `issue_count=27`，但 CI 的 `HEAD~3` 指向的 commit 与本地不同（浅克隆 + 不同 clone 时间点）
+  4. CI 上实际跑出来的 issue 数量 ≠ 27 → ratio < 0.5 → 测试再次失败
+  根本原因：快照文件依赖 `HEAD~N` 相对引用，本质上是环境相关的产物，不应进入版本控制。提交它就等于把"我机器的检测结果"当成"所有机器的正确答案"。
+  修复：`pipeline_head_snapshot.json` 加入 `.gitignore` 并从 git 追踪中移除（`git rm --cached`），各环境首次运行时自行生成基线。本地多次运行之间仍保留回归检测能力，CI 则退化为"只生成不比对"的安全模式。
 - 因为 `build_coverage_matrix` 使用固定 `random.Random(SEED)` 确定性生成 → `regenerate_empty` 可以按位置精确匹配原始参数，无需在数据集中存储参数副本。
 
 ---
