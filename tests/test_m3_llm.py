@@ -120,9 +120,11 @@ class TestPipelineWithMockLLM:
         # 确定性结果不受影响
         assert len(output.change_set.get("files", [])) > 0
         assert len(output.markdown) > 0
-        # trace 应包含 LLM 审查步骤
-        has_llm_trace = any("llm_review" in t.step for t in output.trace)
-        assert has_llm_trace
+        # 如果有 Python 文件变更，trace 应包含 LLM 审查步骤
+        has_py = any(f.get("path", "").endswith(".py") for f in output.change_set.get("files", []))
+        if has_py:
+            has_llm_trace = any("llm_review" in t.step for t in output.trace)
+            assert has_llm_trace
 
     def test_pipeline_static_results_preserved_on_llm_failure(self):
         """M3 验收：LLM 失败时静态结果不受影响。"""

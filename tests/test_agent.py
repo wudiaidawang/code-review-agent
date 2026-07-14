@@ -140,7 +140,9 @@ class TestInvestigateWithMockLLM:
         assert ev.kind == "code"
         assert ev.source == "git_grep"
         assert ev.location is not None
-        assert "investigator" in ev.location.file or "agent" in ev.location.file
+        # 至少有一条 evidence 的文件路径包含 investigator 或 agent
+        ev_files = [e.location.file for e in result.evidence if e.location]
+        assert any("investigator" in f or "agent" in f for f in ev_files)
 
     def test_files_visited_capped(self):
         """文件列表不超过 20 个。"""

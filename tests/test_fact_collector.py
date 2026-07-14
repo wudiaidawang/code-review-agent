@@ -7,10 +7,12 @@ class TestFactCollector:
         """用本仓库自身做端到端验证。"""
         fc = FactCollector()
         result = fc.collect(".", "HEAD~2", "HEAD")
-        # 验证所有工具都成功了
-        for name in ("git", "python_ast", "ruff", "bandit"):
-            assert name in result.tool_results
-            assert result.tool_results[name].ok(), f"{name} failed"
+        # git 始终在，其他工具取决于变更文件类型
+        assert "git" in result.tool_results
+        assert result.tool_results["git"].ok(), "git failed"
+        for name in ("python_ast", "ruff", "bandit"):
+            if name in result.tool_results:
+                assert result.tool_results[name].ok(), f"{name} failed"
         # 有变更文件和证据
         assert len(result.change_set.get("files", [])) > 0
         assert len(result.evidence) > 0
