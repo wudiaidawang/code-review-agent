@@ -23,3 +23,6 @@ venv/
 
 # 持久化运行记录
 runs/
+
+# 回归快照（环境相关，各环境自行生成）
+tests/__snapshots__/pipeline_head_snapshot.json
