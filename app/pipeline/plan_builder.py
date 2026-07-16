@@ -106,17 +106,19 @@ class RuleBasedPlanBuilder:
         return signals
 
     def _scan_risks_fast(self, files: list[dict], total_lines: int) -> set[str]:
-        """快速风险扫描：仅按文件名判断（无文件内容时使用）。"""
+        """快速风险扫描：仅按文件名判断（无文件内容时使用）。
+
+        对所有 _RISK_PATTERNS 中的风险类型逐一检查文件名匹配，
+        不限于 dependency_change。例如 auth.py 触发 auth_change，
+        db.py 触发 sql_risk 等。
+        """
         signals: set[str] = set()
         all_paths = " ".join(f["path"].lower() for f in files)
         for code, keywords in _RISK_PATTERNS.items():
-            # 仅检查文件名中含的关键词（如 auth.py、requirements.txt）
-            if code == "dependency_change":
-                if any(kw in all_paths for kw in keywords):
-                    signals.add(code)
+            if any(kw in all_paths for kw in keywords):
+                signals.add(code)
         if total_lines > 500:
-            # 大变更默认视为有一定风险
-            pass
+            signals.add("large_diff")
         return signals
 
     @staticmethod

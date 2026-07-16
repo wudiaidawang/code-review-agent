@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from app.models.evidence import Evidence
 from app.models.location import CodeLocation
+from app.core.workspace import WorkspaceManager
 from app.tools.llm_tool import chat
 from app.tools.search_tool import SearchTool
 from app.tools.contract import ToolRequest
@@ -140,16 +141,22 @@ class InvestigationAgent:
                 confidence=0.95,
             ))
 
-        # Step 4: 读取关键文件的前 100 行（用于 LLM 上下文）
+        # Step 4: 从受控快照读取关键文件（用于 LLM 上下文）
         context_chunks: list[str] = []
-        for fpath in list(files_seen)[:5]:
-            full_path = os.path.join(abs_path, fpath)
-            try:
-                with open(full_path, "r", encoding="utf-8", errors="replace") as f:
-                    content = f.read()[:3000]  # 每个文件最多 3000 字符
-                context_chunks.append(f"### {fpath}\n```python\n{content}\n```")
-            except Exception:
-                continue
+        workspace = None
+        try:
+            workspace = WorkspaceManager().prepare(abs_path, "HEAD")
+            for fpath in list(files_seen)[:5]:
+                try:
+                    content = workspace.read_file(fpath)[:3000]
+                    context_chunks.append(f"### {fpath}\n```python\n{content}\n```")
+                except ValueError:
+                    continue
+        except Exception as exc:
+            result.trace.append(f"workspace_fallback: {exc}")
+        finally:
+            if workspace:
+                workspace.cleanup()
 
         # Step 5: LLM 合成答案
         sys_prompt = (

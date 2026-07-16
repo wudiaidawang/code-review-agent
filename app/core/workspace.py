@@ -7,6 +7,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+import io
+import tarfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,6 +23,10 @@ class WorkspaceConfig:
     max_file_bytes: int = 2 * 1024 * 1024  # 2 MB
     # 最多分析文件数
     max_files: int = 500
+    # 快照允许的总字节数
+    max_total_bytes: int = 50 * 1024 * 1024  # 50 MB
+    # git archive 导出超时
+    export_timeout_s: float = 60.0
     # 临时目录前缀
     tmp_prefix: str = "review_ws_"
 
@@ -49,7 +55,7 @@ class Workspace:
                     continue
                 full = os.path.join(root, name)
                 size = os.path.getsize(full)
-                if size > self.config.max_file_bytes:
+                if size > self.config.max_file_bytes or total_bytes + size > self.config.max_total_bytes:
                     continue
                 if len(files) >= self.config.max_files:
                     break
@@ -60,13 +66,21 @@ class Workspace:
 
     def read_file(self, relative_path: str) -> str:
         """只读方式读取文件内容，编码自动检测。"""
+        if os.path.isabs(relative_path):
+            raise ValueError(f"不允许绝对路径: {relative_path}")
         full = os.path.join(self.work_dir, relative_path)
         # 安全检查：不允许 .. 跳出工作区
         real = os.path.realpath(full)
         real_root = os.path.realpath(self.work_dir)
-        if not real.startswith(real_root + os.sep) and real != real_root:
+        if os.path.commonpath([real, real_root]) != real_root:
             raise ValueError(f"路径越界: {relative_path}")
-        return Path(full).read_text(encoding="utf-8")
+        if not os.path.isfile(real):
+            raise ValueError(f"不是可读取文件: {relative_path}")
+        if os.path.splitext(real)[1].lower() not in self.config.allowed_extensions:
+            raise ValueError(f"不允许的文件类型: {relative_path}")
+        if os.path.getsize(real) > self.config.max_file_bytes:
+            raise ValueError(f"文件过大: {relative_path}")
+        return Path(real).read_text(encoding="utf-8", errors="replace")
 
     def cleanup(self) -> None:
         """删除临时工作目录。"""
@@ -103,8 +117,11 @@ class WorkspaceManager:
         head_ref = head_ref or "HEAD"
         work_dir = tempfile.mkdtemp(prefix=self.config.tmp_prefix)
 
-        # 用 git checkout-index 导出目标快照到临时目录（只读、不污染原仓库）
-        self._export_snapshot(repo_path, head_ref, work_dir)
+        try:
+            self._export_snapshot(repo_path, head_ref, work_dir)
+        except Exception:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise
 
         ws = Workspace(
             repo_path=repo_path,
@@ -120,36 +137,48 @@ class WorkspaceManager:
         """用 git archive 或 checkout-index 导出 ref 的文件快照。"""
         # 优先用 git archive（干净、只导出跟踪文件）
         try:
-            subprocess.run(
-                ["git", "-C", repo_path, "archive", "--format=tar", ref],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                check=True,
-            ).stdout
-            # archive 输出到 stdout，pipe 到 tar 解压
             result = subprocess.run(
                 ["git", "-C", repo_path, "archive", "--format=tar", ref],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 check=True,
+                timeout=self.config.export_timeout_s,
             )
-            import tarfile
-            import io
-
+            if len(result.stdout) > self.config.max_total_bytes:
+                raise ValueError("仓库快照超过总大小上限")
             with tarfile.open(fileobj=io.BytesIO(result.stdout)) as tar:
-                tar.extractall(target_dir)
+                members = tar.getmembers()
+                if len(members) > self.config.max_files:
+                    raise ValueError("仓库快照文件数超过上限")
+                total_size = sum(member.size for member in members if member.isfile())
+                if total_size > self.config.max_total_bytes:
+                    raise ValueError("仓库快照解压后超过总大小上限")
+                root = os.path.realpath(target_dir)
+                for member in members:
+                    destination = os.path.realpath(os.path.join(target_dir, member.name))
+                    if os.path.commonpath([root, destination]) != root or member.issym() or member.islnk():
+                        raise ValueError("仓库快照包含不安全路径或链接")
+                tar.extractall(target_dir, members=members)
         except Exception:
-            # 回退：直接复制（适合裸仓库或非标准 git）
-            self._copy_snapshot(repo_path, target_dir)
+            # archive 失败不回退到未受限复制，避免绕开资源与路径约束。
+            raise
 
     def _copy_snapshot(self, repo_path: str, target_dir: str) -> None:
         """回退方案：将工作树文件复制到临时目录（排除 .git）。"""
-        for item in os.listdir(repo_path):
-            if item == ".git":
-                continue
-            src = os.path.join(repo_path, item)
-            dst = os.path.join(target_dir, item)
-            if os.path.isdir(src):
-                shutil.copytree(src, dst, symlinks=False)
-            else:
+        total_bytes = 0
+        copied_files = 0
+        for root, dirs, files in os.walk(repo_path):
+            dirs[:] = [d for d in dirs if d != ".git"]
+            for name in files:
+                src = os.path.join(root, name)
+                if os.path.islink(src):
+                    continue
+                size = os.path.getsize(src)
+                copied_files += 1
+                total_bytes += size
+                if copied_files > self.config.max_files or total_bytes > self.config.max_total_bytes:
+                    raise ValueError("复制快照超过资源上限")
+                rel = os.path.relpath(src, repo_path)
+                dst = os.path.join(target_dir, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copy2(src, dst)
