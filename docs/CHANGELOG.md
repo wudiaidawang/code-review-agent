@@ -11,6 +11,91 @@
 
 ---
 
+## 2026-07-16 ~ 2026-07-17 — Report 级评测落地、证据链修复、漏报四项补强与真实 GLM 基准
+
+本段工作跨三个主题，最终产出首个有效的真实模型基准：static P 97.47% / R 64.71% / F1 77.78%；llm P 95.62% / R 77.51% / F1 85.62%（llm 相对 static F1 +7.8pp，验证「确定性工具可靠扫描 + LLM 语义补漏」架构方向）。口径警告：真值来自合成样本 + LLM-as-Judge，属系统内对比指标，不得表述为生产准确率。
+
+### 主题一：Report 级评测框架落地（eval_report/）
+
+**动机**：M4 只有 Plan 级评测（预测该跑哪些工具），缺 Issue 级质量评测（报出来的问题对不对、漏了什么）。
+
+- `eval_report/__init__.py` — 新包：真实代码 → Pipeline → LLM-as-Judge → Issue 质量指标。
+- `eval_report/generate_samples.py` — LLM 样本生成器：按风险信号批量生成含已知漏洞的代码，初始化为 safe→vuln 双 commit git repo。后续改造：样本目录从仓库内 `samples/` 移到 `%TEMP%/eval_report_samples`（`EVAL_SAMPLES_DIR` 可覆盖），新增 `--output-dir` 参数。
+- `eval_report/_gen_20_samples.py` — 手工构造 20 个确定性样本（s01–s20），覆盖 bandit/ruff/dependency/python_ast/混合/边界 6 类场景，内嵌 expected_issues 标注。
+- `eval_report/run_pipeline.py` — 批量执行器，`--mode static|llm` 输出到 `results/<mode>/`。
+- `eval_report/judge.py` — LLM-as-Judge：逐 Issue 判 correct/false_positive/uncertain + 列 missed。
+- `eval_report/metrics.py` — 配对 pipeline_output + judgment 计算 P/R/F1，输出 Markdown/JSON 报告。
+- `eval_report/sample_cve.py` — GitHub 真实 CVE 案例采样脚本（gh CLI 搜索 fix commit，checkout 漏洞版本跑 Pipeline）。
+- `eval_report/_zhipu_review.py` — 临时脚本：把当前项目 diff 发给智谱做一次性审查。
+- `eval_report/samples/test_manual_001/auth.py` — 手工样本实验产物，添加后即删除，不保留（样本一律放临时目录）。
+- `.gitignore` — 忽略 `eval_report/samples|results|results_baseline_*|reports/` 与 `review_output.json`（运行产物不入库）。
+- `README.md`、`tests/test_fact_collector.py`、`tests/test_m2_pipeline.py`、`tests/test_m5_api.py`、`tests/test_performance.py`、`.github/workflows/test.yml` — 属 2026-07-15 已记录条目的实际落盘（fixed_git_diff 覆盖补全 + actions 升级），随本段一并提交。
+
+### 主题二：评测证据链缺陷修复（Judge 结果曾 20/20 全部无效）
+
+**根因**：Judge 在评判时到样本目录执行 `git diff HEAD~1..HEAD` 取证；样本放在可被清理的临时目录，目录失效后整批 Judge 结果作废。**正确设计：Pipeline 运行当时把 diff 固化进结果，Judge 只消费持久化证据。**
+
+- `app/tools/git_tool.py` — `_diff()` 返回 `(ChangeSet, unified_diff)`，artifacts 增加 `unified_diff`（`--unified=8`）。
+- `app/pipeline/review_pipeline.py` — `ReviewOutput` 新增 `unified_diff` 字段，run() 固化本次 diff 证据。
+- `eval_report/run_pipeline.py` — 结果 JSON 持久化 `unified_diff`。
+- `eval_report/judge.py` — 删除 `_get_diff()`（git 取证）改为 `_load_diff()`（只读持久化字段）；缺字段报明确错误，不回退 git；修正结束时打印的目录为实际输出目录。
+- `eval_report/metrics.py` — `_load_data()`/`run()` 支持 `--results-dir`（结果已按 mode 分目录）。
+- `tests/helpers.py` — 新增 `FIXED_UNIFIED_DIFF`，mock GitTool 同步返回 unified_diff artifact。
+- `tests/__init__.py`、`tests/test_eval_diff_persistence.py` — 新增 5 条证据链回归测试（TDD，先红后绿）。
+
+**连带修复（A→B 因果）**：重跑 Judge 时 11/20 样本 JSON 解析失败 → 排查发现 glm-4.5-air 是推理模型，思考内容与正文共用 max_tokens 预算，预算被思考耗尽导致正文为空 → 为此改了 `app/tools/llm_tool.py`：`chat()/chat_completion()` 增加 `extra_body` 透传（如 `{"thinking": {"type": "disabled"}}`）、`timeout` 参数、惰性导入 OpenAI SDK（mock/offline 测试无需依赖）、SDK 层 `max_retries=0`（重试统一由 tenacity 管理，避免叠加重试导致长时间无观测阻塞）→ `judge.py` 与 `run_pipeline.py::_glm_call` 关闭 thinking 并调整输出预算（900→1500）。`tests/test_m3_llm.py` 新增 extra_body 透传测试。
+
+### 主题三：针对漏报的四项补强（同基准验证 Recall 真实提升）
+
+**动机**：首轮有效基准 Recall 仅 ~41%。聚合 40 条 Judge missed 清单定位四类根因，逐项补强后同基准复测。
+
+- `app/tools/ruff_tool.py` — 显式 `--select E,W,F,S,C90`（ruff 默认只启用 E4/E7/E9/F，S101 assert、C901 复杂度、E501 行长全部漏检；s11/s12 类样本曾零检出）。E2xx/E3xx 空格空行类需 `--preview` 才生效，经权衡不开启（preview 规则跨版本行为漂移，与确定性原则和不锁版本的 `ruff>=0.1.0` 冲突；仅影响 E302/E231 两条最轻微格式项）。
+- `app/pipeline/aggregator.py` — 分组键 `(file, rule_id)` → `(file, rule_id, start_line)`：同规则多处命中不再被合并吞掉（s01 第二处 SQL 注入、s08 六个未使用导入曾在报告中不可见），对齐主流工具报告粒度。
+- `app/pipeline/review_pipeline.py` — LLM 语义审查从仅 `.py` 扩展到 `_llm_reviewable()` 白名单（js/ts/java/go/json/yaml/toml 等，排除 lock 文件）；s20 index.js 的 SQL 注入、s17 settings.json 硬编码密钥曾完全无覆盖。
+- `app/pipeline/llm_reviewer.py` — 系统提示改为 9 项显式检查清单（硬编码凭据/注入/鉴权缺失/不安全密码学/异常处理/资源泄漏/框架安全配置/固定路径/逻辑边界）；「是否重复」只对照静态发现列表判断（原「不要重复静态工具的问题」表述导致 LLM 不报它以为 bandit 会报的问题）。
+- `tests/test_static_tools.py`、`tests/test_m2_pipeline.py`、`tests/test_m3_llm.py` — 各新增 1 条针对性测试（TDD）。
+- 验收（同 20 样本、同 Judge 配置）：static F1 55.29%→77.78%，llm F1 56.00%→85.62%；预设缺陷命中率（expected_issues 口径）static 32/38、llm 36/38。基线备份 `eval_report/results_baseline_20260716/`（不入库）。
+
+### 主题四：受控工作区安全加固与 Agent 接入（随本段一并提交的前期改动）
+
+- `app/core/workspace.py` — tar 快照解压增加安全校验（路径逃逸/符号链接拒绝、文件数与总大小上限、导出超时）；`read_file()` 拒绝绝对路径、校验扩展名与文件大小；archive 失败不再回退到无约束复制；导出失败清理临时目录；`_copy_snapshot` 补文件数/大小上限。
+- `app/agent/investigator.py` — 读取上下文文件从直接读仓库改为经 `WorkspaceManager` 受控快照（与 Pipeline 同一安全边界）。
+- `app/pipeline/plan_builder.py` — 修复文件名快速风险扫描 bug：原只对 `dependency_change` 一类生效，现对全部风险模式逐一匹配（auth.py→auth_change 等）；大变更显式加 `large_diff` 信号。
+- `pytest.ini` — markers 描述改为纯英文（延续该文件纯 ASCII 约定，规避本地编码读取问题）。
+
+### 文档与状态同步
+
+- `docs/INDEX.md` — 补齐整个 `eval_report/` 章节（此前从未索引）；同步 ruff_tool/aggregator/llm_reviewer/review_pipeline/llm_tool 及测试条目；测试计数更新为 183。
+- `_PLAN/plan_status.md` — 同步真实进度：M3「真实模型 benchmark」、M4「Report 级评测」「下游 Issue P/R 评测」翻转为 ✅；重写「本轮评测跟踪」（原文还写着"无 ZHIPU_API_KEY、GLM 基准未完成"，与事实脱节）；优先级更新为 ① Agent 增强 ② 真值校准 ③ 微调 Planner；页眉加当前阶段定义。
+- `docs/CHANGELOG.md` — 本条目。
+
+**验证**：`python -m pytest tests/` → 183 passed（含 8 条本段新增，全部 TDD 先红后绿）。
+
+---
+
+## 2026-07-15 — 补全固定 Git Diff 覆盖范围 + Node.js 20 弃用修复
+
+**动机**：上次修复（2026-07-14）只把 `fixed_git_diff` fixture 应用到了 `test_pipeline_recovery.py` 和 `test_m3_llm.py`，但仍有 4 个测试文件在 CI 中直接调用真实 GitTool，当 push 只含 .md 文件时可能失败。GitHub 邮件再次报 exit code 1，同时附带了 Node.js 20 弃用告警。
+
+**改了什么**：
+
+- `tests/test_m2_pipeline.py` — `TestReviewPipeline.test_full_pipeline` 新增 `fixed_git_diff` fixture 参数，确保集成测试不依赖仓库当前 diff。
+- `tests/test_fact_collector.py` — `test_collect_on_self`、`test_all_findings_have_evidence`、`test_all_findings_have_location` 新增 `fixed_git_diff` fixture 参数。注意：`FactCollector.collect()` 内直接 `GitTool()` new 实例（不走 `_TOOL_REGISTRY`），但 `monkeypatch.setattr` 作用于类方法，所有实例均受影响。
+- `tests/test_m5_api.py` — 4 个 Review 创建测试（`test_review_success`、`test_review_with_default_refs`、`test_get_review_after_create`、`test_review_end_to_end_has_issues_in_own_repo`）新增 `fixed_git_diff` fixture 参数；`test_cli_review_integration` 同样新增 fixture。`test_review_end_to_end_has_issues_in_own_repo` 的 `HEAD~5` 改为 `HEAD~3`（修复前 `HEAD~5` 超出 CI 浅克隆深度 5，git diff 返回空，`len(evidence) > 0` 断言失败）。
+- `tests/test_performance.py` — `test_timeline_produced` 和 `test_timeline_ascii_output`（均标记 `@pytest.mark.perf`，在 CI 中执行）新增 `fixed_git_diff` fixture 参数。
+- `.github/workflows/test.yml` — 全部 3 个 job（test/golden/recovery）中 `actions/checkout` 由 v4 升级为 v5、`actions/setup-python` 由 v5 升级为 v6，消除 Node.js 20 弃用告警。
+- `docs/INDEX.md` — 同步更新上述测试文件 + workflow 条目的描述。
+- `docs/CHANGELOG.md` — 本条目。
+
+**A → B 因果链**：
+- 因为上次 `fixed_git_diff` 只覆盖了 recovery 和 m3_llm 两个测试文件 → 其余测试在 md-only push 场景下仍会因 diff 无 .py 文件而计划只含 git → 部分断言（如 `len(evidence) > 0`、`"bandit" in analyzers`）失败 → 本次补全所有仍使用真实 git diff 的测试。
+- 因为 CI `fetch-depth: 5` 只能拉到 `HEAD~4` → `test_review_end_to_end_has_issues_in_own_repo` 的 `HEAD~5` 在浅克隆中不存在 → git diff 静默返回空（`_git()` 不检查 returncode）→ 无 evidence → 断言失败 → 改为 `HEAD~3`。
+- 因为 GitHub 于 2026-06-02 强制所有 actions 运行在 Node.js 24 → `actions/checkout@v4`（Node 20）和 `actions/setup-python@v5`（Node 20）触发弃用告警 → 升级到 `@v5`/`@v6`（均为 Node 24）。
+
+**验证**：`python -m pytest tests/ -q -m "not slow and not golden"` → 全部通过；golden（4 条）→ 通过；recovery（10 条）→ 通过。
+
+---
+
 ## 2026-07-14 — 测试稳定性重构：固定 Git Diff 输入，消除对仓库提交历史的依赖
 
 **动机**：前几轮 CI 修复反复在 `test_pipeline_recovery.py` 和 `test_m3_llm.py` 中加入条件守卫

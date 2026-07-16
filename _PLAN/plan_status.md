@@ -1,6 +1,8 @@
 # V1 计划任务跟踪表
 
-对照 `_PLAN/AI Code Review Platform — V1 完整任务计划书.md` 逐项跟踪完成状态。更新日期：2026-07-14。
+对照 `_PLAN/AI Code Review Platform — V1 完整任务计划书.md` 逐项跟踪完成状态。更新日期：2026-07-16。
+
+**当前状态定义：核心 Review 产品已完成且可展示；进入 V1 收尾与 V1.1 Agent 增强阶段。**
 
 ## M0 领域模型与工具契约
 
@@ -36,7 +38,7 @@
 | RuleBasedPlanBuilder（规则式计划生成） | ✅ |
 | 最低安全策略（高风险信号强制 bandit） | ✅ |
 | ReviewExecutor（执行计划 + trace + 降级） | ✅ |
-| Aggregator（按 file+rule_id 去重） | ✅ |
+| Aggregator（按 file+rule_id+line 去重） | ✅ | 2026-07-16 粒度细化：同规则不同行各自成 Issue，对齐主流工具报告粒度 |
 | ReportGenerator（Markdown + JSON） | ✅ |
 | 同输入→同结果（确定性幂等） | ✅ |
 | 规则问题不因 LLM/RAG 不可用而丢失 | ✅ |
@@ -56,7 +58,7 @@
 | LLM 结论可回链证据 | ✅ |
 | LLM 失败时静态结果保留 | ✅ |
 | **旧 Chroma 知识库适配为统一 Tool 契约** | ❌ | 当前仍是旧能力，未接入新 Pipeline |
-| **真实模型跑 benchmark（LLM 增量检出/误报/耗时/token）** | ❌ | 当前 LLM 测试全是 mock |
+| **真实模型跑 benchmark（LLM 增量检出/误报/耗时/token）** | ✅ | 2026-07-16 完成：GLM-4.5-Air 真实调用，20 固定样本 static vs llm 两组 + 独立 LLM-as-Judge。llm 相对 static F1 +7.8pp（85.62% vs 77.78%），验证 LLM 补足静态盲区 |
 
 ## M4 评测体系与微调 Planner
 
@@ -67,17 +69,17 @@
 | 评测指标计算（eval_metrics.py） | ✅ |
 | 评测基准脚本（LLM vs 规则基线） | ✅ |
 | Agent 评测（Question Type + Keyword F1） | ✅ |
-| **人工校验 ground truth（50 条）** | ✅ | 2026-07-14 完成，无问题 |
+| **人工校验 ground truth（50 条）** | ⬜ | V1 收尾三缺口之一：真值仍来自合成样本 + LLM-as-Judge，缺独立人工/外部真实项目校准。当前指标只能证明"系统内对比提升"，不得表述为真实生产准确率 |
 | **人工校验 ground truth（全量 700 条双层校验）** | ⬜ | 待定 |
 | **LLM 生成器 JSON 解析加固** | ✅ | 三层兜底：整体解析→正则逐对象→空占位 |
 | **非 Python 语言覆盖扩展** | ✅ | 2026-07-14 完成，Python 50% / JS 14% / TS 10% / Java 6% / Go 6% |
 | **LLM 生成失败批补生成（~100 条 change_summary 为空）** | ✅ | 2026-07-14 完成，添加 --regenerate 命令，确定性匹配空样本并补生成 |
-| **Report 级评测（Issue/Evidence/Suggestion 质量）** | ⬜ | 需先扩展 ground truth schema |
-| **微调训练数据构建（从 trace 生成偏好数据）** | ⬜ | |
-| **微调 Planner 模型训练** | ⬜ | |
-| **微调 vs 规则基线对比实验** | ⬜ | |
+| **Report 级评测（Issue/Evidence/Suggestion 质量）** | ✅ | 2026-07-16 完成：eval_report/ 全链路（20 样本 → Pipeline → LLM-as-Judge → P/R/F1），证据链持久化（unified_diff 随结果固化，Judge 不回仓库取证） |
+| **微调训练数据构建（从 trace 生成偏好数据）** | ⬜ | 刻意放最后：规则 Planner 已有效，先做 Agent 增强更划算 |
+| **微调 Planner 模型训练** | ⬜ | 同上 |
+| **微调 vs 规则基线对比实验** | ⬜ | 同上 |
 | **shadow mode 上线策略实现** | ⬜ | |
-| **下游 Issue precision/recall/严重漏报率评测** | ⬜ | |
+| **下游 Issue precision/recall/严重漏报率评测** | ✅ | 2026-07-16 完成（LLM-as-Judge 口径）：static P 97.47% / R 64.71%；llm P 95.62% / R 77.51%；含 missed_high_severity 统计 |
 
 ## M5 服务化与演示
 
@@ -110,7 +112,7 @@
 | 问题分类（locate/explain/trace/grep） | ✅ |
 | CLI + API 端点 | ✅ |
 | GitHub Actions CI（test/golden/recovery） | ✅ |
-| **多轮探索 UX** | ⬜ | V2 |
+| **多轮探索 UX** | ⬜ | 提升为当前优先级 1：V1.1 Agent 增强的核心内容（多轮探索 + 更聪明的工具选择） |
 | **SearchTool 独立实现** | ✅ | 2026-07-14 完成，app/tools/search_tool.py，InvestigationAgent 已重构使用 |
 
 ## 明确不纳入 V1（计划书 §八）
@@ -123,12 +125,36 @@
 | 团队知识/历史反馈闭环 | V2 |
 | 多租户存储 | V2 |
 
+## 本轮评测跟踪（2026-07-16，已完成两轮迭代）
+
+**第一轮：评测基础设施修复**
+- 根因修复：Judge 曾回样本临时仓库跑 `git diff HEAD~1..HEAD` 取证，目录被清理后整批 20 个 Judge 结果失效。改为 Pipeline 结果持久化 `unified_diff`，Judge 只消费固化证据（`ReviewOutput.unified_diff` → `run_pipeline.py` 序列化 → `judge.py::_load_diff`）。
+- 附带修复：glm-4.5-air 推理内容与正文共用 max_tokens 预算，思考耗尽预算导致 JSON 截断/为空（曾 11/20 解析失败）。Judge 与评测 LLM 调用统一关闭 thinking（`extra_body={"thinking": {"type": "disabled"}}`）。
+- 基线（有效）：static P 87.18% / R 40.48% / F1 55.29%；llm P 87.50% / R 41.18% / F1 56.00%。
+
+**第二轮：针对漏报的四项补强（同基准验证）**
+1. ruff 显式 `--select E,W,F,S,C90`（默认集不含 S101/C901/E501）
+2. Aggregator 粒度 (file, rule) → (file, rule, line)，同规则多处命中不再被合并吞掉
+3. LLM 语义审查从仅 `.py` 扩展到 js/ts/json/yaml/toml 等（排除 lock 文件）
+4. LLMReviewer 系统提示改为 9 项显式检查清单
+
+**验收结果（同 20 样本、同 Judge 配置、40/40 评判有效）：**
+
+| 模式 | Precision | Recall | F1 |
+|------|-----------|--------|-----|
+| static | 87.18% → 97.47% | 40.48% → 64.71% | 55.29% → 77.78% |
+| llm | 87.50% → 95.62% | 41.18% → 77.51% | 56.00% → 85.62% |
+
+- llm 相对 static F1 +7.8pp——验证「确定性工具负责可靠扫描，LLM 负责语义补漏」架构方向成立。
+- 基线结果备份：`eval_report/results_baseline_20260716/`；报告：`eval_report/reports/report_20260716_*.{md,json}`。
+- 口径警告：真值来自合成样本 + LLM-as-Judge，是系统内对比指标，不是生产准确率。
+
 ## 当前优先级
 
-更新日期：2026-07-14（任务 3/4/5 已完成）
+更新日期：2026-07-16（V1 收尾与 V1.1 Agent 增强阶段）
 
-1. **Report 级评测** — 扩展 ground truth schema，跑完整 Pipeline 评测 Issue/Evidence 质量
-2. **微调 Planner** — 训练数据构建 → 模型训练 → 对比实验
-3. ~~补生成空样本~~ ✅
-4. ~~非 Python 语言扩展~~ ✅
-5. ~~SearchTool~~ ✅
+1. **Investigation Agent 增强** — 从"能回答问题的工具编排器"升级为多步调查助手（多轮探索、更聪明的工具选择）
+2. **评测真值校准** — 人工校验 ground truth（先 50 条）+ 外部真实项目样本（sample_cve.py 路线），把"系统内对比"升级为可外部背书的指标
+3. **微调 Planner** — 刻意放最后：规则 Planner 已有效，先做 Agent 增强更划算
+4. ~~Report 级评测~~ ✅（2026-07-16）
+5. ~~真实 GLM benchmark~~ ✅（2026-07-16）
