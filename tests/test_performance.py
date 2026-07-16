@@ -92,7 +92,7 @@ class TestPipelinePerf:
         assert output.duration_ms < 30000, f"Pipeline 总耗时 {output.duration_ms:.0f}ms > 30000ms"
 
     @pytest.mark.perf
-    def test_timeline_produced(self):
+    def test_timeline_produced(self, fixed_git_diff):
         """每次运行均应生成 Timeline。"""
         pipeline = ReviewPipeline()
         output = pipeline.run(".", "HEAD~1", "HEAD")
@@ -113,7 +113,7 @@ class TestPipelinePerf:
             assert tool in staged, f"Plan 中的 {tool} 未出现在 timeline stages 中"
 
     @pytest.mark.perf
-    def test_timeline_ascii_output(self):
+    def test_timeline_ascii_output(self, fixed_git_diff):
         """快速验证 timeline ASCII 柱状图可生成。"""
         pipeline = ReviewPipeline()
         output = pipeline.run(".", "HEAD~1", "HEAD")

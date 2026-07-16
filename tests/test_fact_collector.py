@@ -3,8 +3,8 @@ from app.pipeline.fact_collector import FactCollector
 
 
 class TestFactCollector:
-    def test_collect_on_self(self):
-        """用本仓库自身做端到端验证。"""
+    def test_collect_on_self(self, fixed_git_diff):
+        """用固定 change_set 做端到端验证。"""
         fc = FactCollector()
         result = fc.collect(".", "HEAD~2", "HEAD")
         # git 始终在，其他工具取决于变更文件类型
@@ -26,7 +26,7 @@ class TestFactCollector:
         # git 仍然成功
         assert result.tool_results["git"].ok()
 
-    def test_all_findings_have_evidence(self):
+    def test_all_findings_have_evidence(self, fixed_git_diff):
         """M1 验收：每个 Finding 必须有 evidence_ids。"""
         fc = FactCollector()
         result = fc.collect(".", "HEAD~2", "HEAD")
@@ -34,7 +34,7 @@ class TestFactCollector:
             assert f.evidence_ids, f"{f.rule_id} 缺少 evidence_ids"
             assert len(f.evidence_ids) >= 1
 
-    def test_all_findings_have_location(self):
+    def test_all_findings_have_location(self, fixed_git_diff):
         """M1 验收：每个 Finding 必须有代码位置。"""
         fc = FactCollector()
         result = fc.collect(".", "HEAD~2", "HEAD")

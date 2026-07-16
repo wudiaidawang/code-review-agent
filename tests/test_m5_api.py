@@ -22,7 +22,7 @@ class TestHealthCheck:
 
 
 class TestCreateReview:
-    def test_review_success(self):
+    def test_review_success(self, fixed_git_diff):
         """对当前仓库发起审查，验证返回结构。"""
         resp = client.post("/review", json={
             "repo_path": ".",
@@ -42,7 +42,7 @@ class TestCreateReview:
         assert "json_report" in data
         assert data["duration_ms"] > 0
 
-    def test_review_with_default_refs(self):
+    def test_review_with_default_refs(self, fixed_git_diff):
         """使用默认 base/head refs 发起审查。"""
         resp = client.post("/review", json={
             "repo_path": ".",
@@ -67,7 +67,7 @@ class TestCreateReview:
 
 
 class TestGetReview:
-    def test_get_review_after_create(self):
+    def test_get_review_after_create(self, fixed_git_diff):
         """创建后可通过 run_id 查询。"""
         # 先创建
         resp = client.post("/review", json={
@@ -98,11 +98,11 @@ class TestGetReview:
         assert "total" in data
         assert isinstance(data["runs"], list)
 
-    def test_review_end_to_end_has_issues_in_own_repo(self):
+    def test_review_end_to_end_has_issues_in_own_repo(self, fixed_git_diff):
         """端到端：审查本项目自身应检出 ruff/bandit 发现。"""
         resp = client.post("/review", json={
             "repo_path": ".",
-            "base_ref": "HEAD~5",
+            "base_ref": "HEAD~3",
             "head_ref": "HEAD",
         })
         assert resp.status_code == 200
@@ -201,7 +201,7 @@ class TestCLI:
         from app.cli import main
         assert callable(main)
 
-    def test_cli_review_integration(self, capsys):
+    def test_cli_review_integration(self, capsys, fixed_git_diff):
         """CLI review 命令可运行并输出报告。"""
         from app.cli import cmd_review
         import argparse

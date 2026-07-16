@@ -38,6 +38,27 @@ class TestRuffTool:
         assert result.ok()
         assert result.findings == []
 
+    def test_extended_ruleset_covers_security_and_complexity(self):
+        """规则集必须覆盖 S101 (assert 校验) 与 C901 (圈复杂度)——ruff 默认不启用这两类。"""
+        tmpdir = tempfile.mkdtemp()
+        fp = os.path.join(tmpdir, "test.py")
+        try:
+            with open(fp, "w") as f:
+                f.write("def validate(age):\n    assert age > 0\n    return True\n\n")
+                # 12 个分支 → 圈复杂度 > 10
+                f.write("def complex_fn(x):\n")
+                for i in range(12):
+                    f.write(f"    if x == {i}:\n        return {i}\n")
+                f.write("    return -1\n")
+            rt = RuffTool()
+            result = rt.execute(ToolRequest(tool="ruff", params={"paths": [fp]}))
+            rules = {f.rule_id for f in result.findings}
+            assert "S101" in rules
+            assert "C901" in rules
+        finally:
+            os.remove(fp)
+            os.rmdir(tmpdir)
+
     def test_findings_have_location(self):
         tmpdir = tempfile.mkdtemp()
         fp = os.path.join(tmpdir, "test.py")

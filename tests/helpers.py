@@ -43,6 +43,22 @@ FIXED_CHANGESET = {
     ]
 }
 
+FIXED_UNIFIED_DIFF = """diff --git a/auth.py b/auth.py
+index 1111111..2222222 100644
+--- a/auth.py
++++ b/auth.py
+@@ -10,5 +10,6 @@
+ def login(user):
++    return user
+diff --git a/utils.py b/utils.py
+index 1111111..2222222 100644
+--- a/utils.py
++++ b/utils.py
+@@ -20,3 +20,4 @@
+ def helper():
++    return True
+"""
+
 # 固定 change_set 触发的预期工具列表
 EXPECTED_ANALYZERS = ["git", "python_ast", "ruff", "bandit", "dependency"]
 
@@ -52,7 +68,7 @@ def mock_git_execute(self, request: ToolRequest) -> ToolResult:
     return ToolResult(
         tool="git",
         status="success",
-        artifacts={"change_set": FIXED_CHANGESET},
+        artifacts={"change_set": FIXED_CHANGESET, "unified_diff": FIXED_UNIFIED_DIFF},
         evidence=[
             Evidence(
                 kind="change",

@@ -35,8 +35,12 @@ class RuffTool:
             return ToolResult.failure(self.name, "RUFF_ERROR", str(e))
 
     def _run(self, paths: list[str]) -> tuple[list[Finding], list[Evidence]]:
+        # ruff 默认只启用 E4/E7/E9/F，安全类 (S)、复杂度 (C901)、行长 (E501) 等
+        # 全部漏掉——评测中 s09/s11/s12 类样本因此零检出。显式扩选。
         result = subprocess.run(
-            ["python", "-m", "ruff", "check", "--output-format", "json"] + paths,
+            ["python", "-m", "ruff", "check",
+             "--select", "E,W,F,S,C90",
+             "--output-format", "json"] + paths,
             capture_output=True, timeout=120,
         )
         stdout = result.stdout.decode("utf-8", errors="replace")

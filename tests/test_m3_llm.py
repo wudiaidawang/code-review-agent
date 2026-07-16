@@ -53,6 +53,32 @@ def _mock_fails_then_ok(sys_prompt: str, user_prompt: str) -> str:
     })
 
 
+class TestLLMToolExtraBody:
+    """llm_tool.chat 必须支持 extra_body 透传（如关闭推理模型 thinking）。"""
+
+    def test_chat_passes_extra_body(self, monkeypatch):
+        from app.tools import llm_tool
+
+        captured = {}
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                msg = type("Msg", (), {"content": "ok"})
+                choice = type("Choice", (), {"message": msg})
+                return type("Resp", (), {"choices": [choice]})
+
+        fake_client = type("Client", (), {
+            "chat": type("Chat", (), {"completions": FakeCompletions()}),
+        })
+        monkeypatch.setattr(llm_tool, "get_client", lambda timeout=None: fake_client)
+
+        out = llm_tool.chat("hi", extra_body={"thinking": {"type": "disabled"}})
+
+        assert out == "ok"
+        assert captured["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
 class TestLLMReviewer:
     def test_valid_output(self):
         reviewer = LLMReviewer(call_llm=_mock_valid)
@@ -131,3 +157,53 @@ class TestPipelineWithMockLLM:
         output = pipeline.run(".", "HEAD~2", "HEAD")
         # 即使 LLM 失败（mock_invalid_json），git 证据依然产出
         assert len(output.evidence) > 0
+
+    def test_pipeline_passes_actual_patch_to_llm(self, fixed_git_diff):
+        prompts = []
+
+        def capture_prompt(system_prompt, user_prompt):
+            prompts.append(user_prompt)
+            return json.dumps({"findings": []})
+
+        output = ReviewPipeline(llm_reviewer=LLMReviewer(call_llm=capture_prompt)).run(
+            ".", "HEAD~2", "HEAD"
+        )
+        assert output.change_set.get("files")
+        assert prompts
+        assert any("diff --git" in prompt for prompt in prompts)
+
+    def test_llm_review_covers_non_python_code_and_config(self, monkeypatch):
+        """JS/JSON 等代码/配置文件也必须进 LLM 语义审查（评测中 index.js 的 SQL 注入曾零检出）。"""
+        from app.tools.git_tool import GitTool
+        from app.tools.contract import ToolRequest, ToolResult
+
+        changeset = {"files": [
+            {"path": "index.js", "change_type": "added", "added_lines": 12, "deleted_lines": 0, "hunks": []},
+            {"path": "settings.json", "change_type": "added", "added_lines": 5, "deleted_lines": 0, "hunks": []},
+            {"path": "package-lock.json", "change_type": "added", "added_lines": 900, "deleted_lines": 0, "hunks": []},
+        ]}
+        diff = (
+            "diff --git a/index.js b/index.js\n+const q = \"SELECT * FROM u WHERE id=\" + req.params.id;\n"
+            "diff --git a/settings.json b/settings.json\n+{\"secret_key\": \"prod-secret\"}\n"
+            "diff --git a/package-lock.json b/package-lock.json\n+{}\n"
+        )
+
+        def mock_git(self, request: ToolRequest) -> ToolResult:
+            return ToolResult(tool="git", status="success",
+                              artifacts={"change_set": changeset, "unified_diff": diff})
+
+        monkeypatch.setattr(GitTool, "execute", mock_git)
+
+        reviewed = []
+
+        class CaptureReviewer:
+            def review(self, file_path, diff_snippet, symbols, static_findings, existing_evidence):
+                reviewed.append(file_path)
+                return [], []
+
+        ReviewPipeline(llm_reviewer=CaptureReviewer()).run(".", "HEAD~1", "HEAD")
+
+        assert "index.js" in reviewed
+        assert "settings.json" in reviewed
+        # 锁文件是机器生成的海量 diff，不值得花 LLM 预算
+        assert "package-lock.json" not in reviewed

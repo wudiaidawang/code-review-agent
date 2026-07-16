@@ -25,12 +25,12 @@ class GitTool:
         head = request.params.get("head_ref", "HEAD")
 
         try:
-            changeset = self._diff(repo, base, head)
+            changeset, unified_diff = self._diff(repo, base, head)
             evidence = self._build_evidence(changeset)
             return ToolResult(
                 tool=self.name,
                 status="success",
-                artifacts={"change_set": changeset.to_dict()},
+                artifacts={"change_set": changeset.to_dict(), "unified_diff": unified_diff},
                 evidence=evidence,
                 duration_ms=(time.perf_counter() - t0) * 1000,
             )
@@ -39,10 +39,11 @@ class GitTool:
 
     # ---- diff 解析 --------------------------------------------------
 
-    def _diff(self, repo: str, base: str, head: str) -> ChangeSet:
+    def _diff(self, repo: str, base: str, head: str) -> tuple[ChangeSet, str]:
         files = self._changed_files(repo, base, head)
         cs = ChangeSet(base=base, head=head, files=files)
-        return cs
+        diff = self._git(repo, ["diff", "--unified=8", f"{base}...{head}"])
+        return cs, diff
 
     def _changed_files(self, repo: str, base: str, head: str) -> list[FileChange]:
         # --name-status 获取文件变更类型

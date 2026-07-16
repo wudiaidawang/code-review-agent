@@ -64,6 +64,19 @@ class TestAggregator:
         issues = agg.aggregate([f1, f2], [ev])
         assert len(issues) == 2
 
+    def test_same_rule_different_lines_kept_separate(self):
+        """同规则多处命中不得合并——每处一个 Issue，否则报告只见第一处（评测中被判漏报）。"""
+        agg = Aggregator()
+        loc1 = CodeLocation(file="db.py", start_line=7)
+        loc2 = CodeLocation(file="db.py", start_line=14)
+        ev1 = Evidence(kind="tool_finding", source="bandit", location=loc1, snippet="t1")
+        ev2 = Evidence(kind="tool_finding", source="bandit", location=loc2, snippet="t2")
+        f1 = Finding(tool="bandit", rule_id="B608", message="SQL injection", location=loc1, evidence_ids=[ev1.id])
+        f2 = Finding(tool="bandit", rule_id="B608", message="SQL injection", location=loc2, evidence_ids=[ev2.id])
+        issues = agg.aggregate([f1, f2], [ev1, ev2])
+        assert len(issues) == 2
+        assert sorted(i.line for i in issues) == [7, 14]
+
     def test_empty(self):
         agg = Aggregator()
         assert agg.aggregate([], []) == []
@@ -106,7 +119,7 @@ class TestReportGenerator:
 class TestReviewPipeline:
     """端到端集成测试 — 用本仓库验证。"""
 
-    def test_full_pipeline(self):
+    def test_full_pipeline(self, fixed_git_diff):
         pipeline = ReviewPipeline()
         output = pipeline.run(".", "HEAD~2", "HEAD")
         assert len(output.change_set.get("files", [])) > 0

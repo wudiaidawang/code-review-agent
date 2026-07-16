@@ -12,6 +12,7 @@ from app.pipeline.aggregator import Aggregator
 from app.pipeline.report import ReportGenerator
 from app.pipeline.observability import build_timeline, PipelineTimeline
 from app.core.workspace import WorkspaceConfig
+from app.core.workspace import WorkspaceManager
 from app.models.issue import Issue
 from app.models.evidence import Evidence
 from app.models.run import TraceEntry
@@ -22,6 +23,7 @@ class ReviewOutput:
     """一次完整审查的产出。"""
     plan: dict = field(default_factory=dict)
     change_set: dict = field(default_factory=dict)
+    unified_diff: str = ""
     symbol_index: list[dict] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
     evidence: list[Evidence] = field(default_factory=list)
@@ -62,9 +64,30 @@ class ReviewPipeline:
             "repo_path": repo_path, "base_ref": base_ref, "head_ref": head_ref,
         }))
         change_set = git_result.artifacts.get("change_set", {}) if git_result.ok() else {}
+        unified_diff = git_result.artifacts.get("unified_diff", "") if git_result.ok() else ""
+        # 固化本次审查的 diff 证据：下游（评测 Judge 等）不得回到仓库重新取证，
+        # 因为仓库可能是随时被清理的临时目录。
+        output.unified_diff = unified_diff
 
         # Step 2: PlanBuilder 基于 ChangeSet 生成计划
-        plan = self.plan_builder.build(change_set)
+        # 读取变更文件内容用于全内容风险扫描（补充文件名快速扫描）
+        file_contents: dict[str, str] = {}
+        workspace = None
+        try:
+            workspace = WorkspaceManager(self.executor.ws_mgr.config).prepare(repo_path, head_ref)
+            for f in change_set.get("files", []):
+                if f.get("change_type") != "deleted":
+                    try:
+                        file_contents[f["path"]] = workspace.read_file(f["path"])
+                    except ValueError:
+                        continue
+        except Exception:
+            # 计划生成可退化为仅基于文件名和 diff 元数据的规则。
+            file_contents = {}
+        finally:
+            if workspace:
+                workspace.cleanup()
+        plan = self.plan_builder.build(change_set, file_contents=file_contents)
         plan_dict = plan.to_dict()
         # M3: 有 LLM reviewer 且计划允许时，开启 LLM 审查
         if self.llm_reviewer:
@@ -82,9 +105,10 @@ class ReviewPipeline:
 
         # Step 4 (M3): LLM 语义审查（可选）
         if self.llm_reviewer and plan_dict.get("enable_llm_semantic_review"):
-            py_files = [f for f in change_set.get("files", [])
-                        if f["path"].endswith(".py") and f.get("change_type") != "deleted"]
-            for fc in py_files[:10]:  # 最多审查 10 个文件
+            review_files = [f for f in change_set.get("files", [])
+                            if self._llm_reviewable(f["path"])
+                            and f.get("change_type") != "deleted"]
+            for fc in review_files[:10]:  # 最多审查 10 个文件
                 # 收集该文件的静态 findings
                 file_findings = [f for f in all_findings
                                   if f.location and f.location.file == fc["path"]]
@@ -92,10 +116,7 @@ class ReviewPipeline:
                 file_symbols = [s for s in output.symbol_index
                                 if s.get("location", {}).get("file") == fc["path"]]
                 # 获取 diff snippet
-                diff_snippet = "\n".join(
-                    f"@@ -{h['old_start']},{h['old_lines']} +{h['new_start']},{h['new_lines']} @@"
-                    for h in fc.get("hunks", [])
-                )
+                diff_snippet = self._file_diff(unified_diff, fc["path"])
                 try:
                     llm_findings, llm_evidence = self.llm_reviewer.review(
                         file_path=fc["path"],
@@ -140,3 +161,27 @@ class ReviewPipeline:
         )
 
         return output
+
+    # 静态工具只覆盖 Python；其余代码/配置文件的语义问题只能靠 LLM 兜底
+    _LLM_REVIEW_SUFFIXES = (".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rb",
+                            ".php", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini")
+    _LLM_REVIEW_EXCLUDE = ("package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+                           "poetry.lock", "uv.lock", "Pipfile.lock")
+
+    @classmethod
+    def _llm_reviewable(cls, path: str) -> bool:
+        name = path.rsplit("/", 1)[-1]
+        if name in cls._LLM_REVIEW_EXCLUDE:
+            return False
+        return path.endswith(cls._LLM_REVIEW_SUFFIXES)
+
+    @staticmethod
+    def _file_diff(unified_diff: str, path: str) -> str:
+        """Extract one file's actual patch for bounded LLM semantic context."""
+        marker = f"diff --git a/{path} b/{path}"
+        start = unified_diff.find(marker)
+        if start < 0:
+            return ""
+        next_start = unified_diff.find("\ndiff --git ", start + len(marker))
+        snippet = unified_diff[start:] if next_start < 0 else unified_diff[start:next_start]
+        return snippet[:6000]

@@ -11,21 +11,24 @@ from app.models.issue import Issue
 
 
 class Aggregator:
-    """确定性聚合器：按 (file, rule_id) 分组去重，产出 Issue 列表。"""
+    """确定性聚合器：按 (file, rule_id, start_line) 分组去重，产出 Issue 列表。"""
 
     def aggregate(self, findings: list[Finding], evidence: list[Evidence]) -> list[Issue]:
         """将 Findings 去重合并为 Issues。
 
-        分组键：location.file + rule_id。同组内合并 message，保留全部 evidence_ids。
+        分组键：location.file + rule_id + start_line。同组内合并 message，保留全部 evidence_ids。
+        同规则不同行各自成 Issue（对齐主流静态分析工具的报告粒度）；
+        去重只针对同一位置的多工具/重复命中。
         """
-        # 按 (file, rule_id) 分组
-        groups: dict[tuple[str, str], list[Finding]] = defaultdict(list)
+        # 按 (file, rule_id, start_line) 分组
+        groups: dict[tuple[str, str, int], list[Finding]] = defaultdict(list)
         for f in findings:
-            key = (f.location.file if f.location else "", f.rule_id)
+            key = (f.location.file if f.location else "", f.rule_id,
+                   f.location.start_line if f.location else 0)
             groups[key].append(f)
 
         issues: list[Issue] = []
-        for (filepath, rule_id), group in sorted(groups.items()):
+        for (filepath, rule_id, line), group in sorted(groups.items()):
             first = group[0]
             # 合并 message：去重后拼接
             messages = list(dict.fromkeys(f.message for f in group))
@@ -36,7 +39,6 @@ class Aggregator:
             ev_ids = list(dict.fromkeys(ev_ids))
 
             severity = self._pick_severity(group)
-            line = first.location.start_line if first.location else 0
 
             issues.append(Issue(
                 type="static",
