@@ -1,6 +1,6 @@
 # V1 计划任务跟踪表
 
-对照 `_PLAN/AI Code Review Platform — V1 完整任务计划书.md` 逐项跟踪完成状态。更新日期：2026-07-16。
+对照 `_PLAN/AI Code Review Platform — V1 完整任务计划书.md` 逐项跟踪完成状态。更新日期：2026-07-18。
 
 **当前状态定义：核心 Review 产品已完成且可展示；进入 V1 收尾与 V1.1 Agent 增强阶段。**
 
@@ -112,8 +112,8 @@
 | 问题分类（locate/explain/trace/grep） | ✅ |
 | CLI + API 端点 | ✅ |
 | GitHub Actions CI（test/golden/recovery） | ✅ |
-| **多轮探索 UX** | ⬜ | 提升为当前优先级 1：V1.1 Agent 增强的核心内容（多轮探索 + 更聪明的工具选择） |
-| **SearchTool 独立实现** | ✅ | 2026-07-14 完成，app/tools/search_tool.py，InvestigationAgent 已重构使用 |
+| **多轮探索 UX** | ✅ | 2026-07-17 M3 完成：假设驱动有限状态调查循环 + 三维预算 + 跨工具关联链 + LLM 辅助排序 + 去重 + investigation_id/续问复用；grep 无命中会受限回退文件名搜索后才 NO_EVIDENCE。Agent 评测已补相对成本/加权节省率及三类预算临界测试。 |
+| **SearchTool 独立实现** | ✅ | 2026-07-18 完成外部仓库检索修复：流式 Top-K、每文件预入堆去重、源码优先排序、docs_src 正确降权、定义名精确匹配；Agent 端过滤通用检索词并归一限定名。Typer 证据检索重放 5/19 → 17/19；该结果是工具层回放，尚非 GLM v1 端到端结果。 |
 
 ## 明确不纳入 V1（计划书 §八）
 
@@ -151,10 +151,11 @@
 
 ## 当前优先级
 
-更新日期：2026-07-16（V1 收尾与 V1.1 Agent 增强阶段）
+更新日期：2026-07-18（V1 收尾与 V1.1 Agent 增强阶段，M3 已落地，外部评测 Judge 已修复）
 
-1. **Investigation Agent 增强** — 从"能回答问题的工具编排器"升级为多步调查助手（多轮探索、更聪明的工具选择）
+1. **外部 Agent v1 语义评测 V2 已完成** ✅（2026-07-19） — V2 改进：JSON Schema 校验 + 完整评判标准 + Evidence 截断 + 冻结数据补全 + 人工验证 12 条（一致率 91.7%）。judge_invalid_schema 三仓库均 0%（曾 5-24%），judge_effective 三仓库均 100%（曾 76-95%）。Judge 管道已可投入生产使用。
 2. **评测真值校准** — 人工校验 ground truth（先 50 条）+ 外部真实项目样本（sample_cve.py 路线），把"系统内对比"升级为可外部背书的指标
 3. **微调 Planner** — 刻意放最后：规则 Planner 已有效，先做 Agent 增强更划算
-4. ~~Report 级评测~~ ✅（2026-07-16）
-5. ~~真实 GLM benchmark~~ ✅（2026-07-16）
+4. ~~Investigation Agent 增强 (M1/M2/M3)~~ ✅（2026-07-17）
+5. ~~Report 级评测~~ ✅（2026-07-16）
+6. ~~真实 GLM benchmark~~ ✅（2026-07-16）

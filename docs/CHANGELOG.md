@@ -11,6 +11,253 @@
 
 ---
 
+## 2026-07-19 — Judge V2：评判标准+JSON Schema+Evidence 截断+冻结数据补全
+
+- `app/pipeline/agent_eval_judge.py` — V2 重写：
+  - System prompt 从 80 字符扩展为含完整评判标准（verdict/score/字段定义）、边界规则（Agent 声明"无法确定"时判定规则）和类型约束的提示词
+  - `_validate_schema()` 替代 `_normalize_judge_schema()`：JSON Schema 严格校验类型（boolean 必须是 true/false，integer 必须是整数），不合法时触发重试而非静默转义
+  - `_truncate_evidence()` 新增：保留 Agent 引用的证据 + 预期文件证据 + 高置信度补充，控制在 ≤18 条，确保多样性（≥5 条非预期文件）
+  - `JUDGE_OUTPUT_SCHEMA` 定义完整 JSON Schema（required/type/enum/minimum/maximum/additionalProperties）
+  - 调用参数：max_tokens 1200→1800，timeout 20s→60s
+  - Schema 不合法与解析失败均触发一次修复重试（含具体错误说明）
+  - `judge_record()` 的输入新增 `expected_answer_keywords`（辅助参考，不要求逐词复述）
+- `app/pipeline/freeze_external_baseline.py` — 新增 `enrich_frozen_with_ground_truth()`：从原始评测数据集按 sample_id 查找 ground truth，补全 `expected_answer_summary` 与 `expected_answer_keywords` 到冻结快照顶层字段；`--enrich` CLI 参数
+- `eval_report/results_agent/external_glm_v1/frozen/external_{click,httpx,typer}_glm_v1.json` — 三个冻结快照各 21 条已补全 ground truth 摘要与关键词
+- `eval_report/results_agent/external_glm_v1/judgments_final_{click,httpx,typer}.json` — 基于 V2 Judge 重判（--no-resume）
+- `eval_report/results_agent/external_glm_v1/V1_JUDGE_REPORT.md` — 更新为 V2 数据 + 人工验证对比
+- `tests/test_agent_eval.py` — 新增 `TestJudgeSchemaValidation`（11 条，JSON Schema 校验）+ `TestEvidenceTruncation`（5 条，截断策略）+ 更新 `TestSemanticJudge`（Schema 错误触发重试）
+- `docs/CHANGELOG.md` — 本条目
+- `docs/INDEX.md` — 同步更新
+- `_PLAN/plan_status.md` — 同步更新
+
+**为什么改（V1→V2）**：V1 Judge 的三项核心问题——(1) system prompt 太弱（80 字符无评判标准），导致 GLM 把问题文本填入 answered_question 字段而非 bool；(2) expected_answer_summary 全部为空（冻结时漏写），Judge 在不知"正确答案"的情况下盲判；(3) 每条样本塞入 60 条 evidence，噪音过大。结果：invalid_schema 率 5-24%，effective 率 76-95%。
+
+**V2 改进效果**：
+- judge_invalid_schema_rate：Click 23.8%→0%，HTTPX 4.8%→0%，Typer 14.3%→0%
+- judge_effective_rate：三仓库均 100%
+- 人工验证 12 条样本，Judge vs 人工一致率 91.7%（11/12）
+- 语义完成率（5-10%）反映的是 v1 Agent 答案质量问题（LLM 合成因 token 预算耗尽而降级），非 Judge 问题
+
+**已有判决保护**：旧 judgments_*.json 和 judgments_retry*.json 原样保留；frozen/ 下仅新增 expected_answer_summary/keywords 字段，原始运行结果未修改。
+
+## 2026-07-18 — Agent 外部评测 LLM-as-Judge 可靠性修复与重判
+
+- `app/pipeline/agent_eval_judge.py` — 全面重写 Judge 模块：
+  - `_parse_judge_json()` 支持裸 JSON、Markdown fenced JSON、前后带解释文本、嵌套括号匹配；禁止 eval，只用 json.loads
+  - 新增 `_extract_json_object()` 从文本中提取 JSON 对象（括号计数匹配）
+  - 新增 `_strip_fences()` 去掉 Markdown 围栏
+  - 新增 `_normalize_judge_schema()` 字段归一化：verdict（4 值白名单）、answered_question→bool、uses_supported_evidence→bool、score→0..2、expected_file_coverage（3 值白名单）；逐字段记录归一化错误
+  - `judge_record()` 明确区分 `judge_unavailable`（API 失败/空输出/不可解析）与 `judge_invalid_schema`（可解析但字段不合法）；新增 `judge_error_type`、`schema_errors`、`retry_raw_response`、`retry_error` 字段
+  - 空响应不再直接标为 unavailable，而是触发一次 JSON 修复重试；重试提示包含原始输出与错误原因，要求"只返回合法 JSON"
+  - `summarize_judgments()` 新增 `judge_invalid_schema_rate`、`judge_effective_rate`、`retry_success_count`
+  - `judge_baseline()` 新增 `call_llm` 参数支持测试依赖注入；`--no-resume` 参数强制忽略已有输出全量重判
+  - Judge 输入只含 question/expected_answer_summary/expected_evidence_files/agent_answer/agent_evidence/fallback_reason，不读仓库
+- `tests/test_agent_eval.py` — 从 30 条扩充至 71 条：新增 `TestJudgeJsonParsing`（16 条，裸 JSON/fenced/前后文本/空/None/嵌套/围栏剥离/JSON 对象提取）和 `TestJudgeSchemaNormalization`（13 条，合法 schema/无效 verdict/bool 归一/score 四舍五入与限幅/coverage 白名单/missing_points 非列表/reason 非字符串/GLM 典型误解），扩展 `TestSemanticJudge`（12 条新增，含重试成功/重试失败/empty→retry/None 持久化/invalid_schema 不重试/API 异常摘要/重试计数/原始响应审计）
+- `eval_report/results_agent/external_glm_v1/judgments_final_{click,httpx,typer}.json` — 三份最终判决（每份 21 条），基于冻结快照 `frozen/external_{project}_glm_v1.json`
+- `eval_report/results_agent/external_glm_v1/judge_final_run.log` — 实时运行日志
+- `eval_report/results_agent/external_glm_v1/V1_JUDGE_REPORT.md` — 四层指标 Markdown 报告
+- `docs/CHANGELOG.md` — 本条目（补写）
+- `docs/INDEX.md` — 同步更新 Judge 模块与新评测产物条目
+- `_PLAN/plan_status.md` — 同步更新评测跟踪状态
+
+**为什么改**：Judge 初版 retry2 的 Click 不可用率高达 71.4%（15/21），原因为 GLM 空响应/Markdown ```json 包装 + 解析函数只处理 fenced JSON 导致大量 JSONDecodeError。同时旧代码混用空响应/解析失败/字段不合法三类情况，无法区分"Judge 挂了"和"Judge 判断不可评"。
+
+**核心改进**：
+- Judge 不可用率：Click 71.4%→0%，HTTPX 0%→0%，Typer 0%→0%
+- Judge 有效评判率：Click 76.2%，HTTPX 95.2%，Typer 85.7%
+- 语义完成率偏低（5-13%）反映的是 v1 Agent 答案质量（LLM 合成因 token 预算耗尽而降级），非 Judge 问题
+
+**已有判决保护**：旧 judgments_*.json 和 judgments_retry*.json 原样保留作故障审计；新输出写入 judgments_final_*.json，不覆盖任何已有文件；frozen/ 下快照未修改。
+
+## 2026-07-18 — 收紧 Investigation 关键词与 SearchTool 候选公平性边界
+
+- `app/agent/investigator.py` — 关键词提取新增轻量停用词/通用词过滤，避免 `python`、`app`、`True`、`False`、`configuration` 等自然语言词触发无目标的大范围搜索；限定名如 `typer.main.Typer` 统一归一为可在源码定义处命中的末段符号 `Typer`。这是确定性启发式，不替代后续 LLM Planner。
+- `app/tools/search_tool.py` — 将“每文件保留最佳命中”从最终输出阶段前移到流式 Top-K 候选维护阶段，并使用版本化惰性堆清理与压缩。单个文件的高分重复命中不再占满候选堆、阻断其他源码文件参与排序；保留 20,000 行扫描和有界内存保护。
+- `tests/test_agent.py`、`tests/test_search_tool.py` — 覆盖限定名归一、通用词不触发搜索，以及 120 条噪声文件命中无法挤占 100 个候选槽位的回归场景。
+
+**验证：** `tests/test_search_tool.py tests/test_agent.py` 定向回归通过，`git diff --check` 无内容错误。完整全量测试由提交者执行；本轮未改动冻结的 `external_glm_v0`。
+
+## 2026-07-18 — SearchTool 流式 Top-K 修复外部仓库源码饥饿
+
+- `app/tools/search_tool.py` — 将 `git grep` 的“先取前 1000 行、再排序”改为流式扫描与有界 Top-K 小根堆；扫描期间即时完成文件分类、命中分类与评分，最多扫描 20,000 行 / 10 MB / 30 秒，并明确暴露截断状态。这样 `git grep` 按路径字母序输出时，`docs/` 不会再耗尽候选池、使后续 `typer/` 源码不可达。
+- `app/tools/search_tool.py` — `docs_src`、`doc_src` 按目录段归为 documentation；定义命中必须解析出真实定义名且与查询词匹配；最终结果每个文件优先保留其最高分命中，避免同一文件占满返回槽位。评分统一为：文件类型 + 命中类型 + 匹配精度 + 查询词覆盖度。
+- `tests/test_search_tool.py` — 增加文件分类、定义名解析、命中分类、精度/多关键词评分、源代码优先、字母序末尾源码仍可入选、资源上限与回归场景的覆盖。
+
+**确定性重放验收：** Typer 预期文件命中从 5/19（26.3%）提升至 17/19（89.5%），14 条原失败中修复 12 条；Click 77.8% → 88.9%，HTTPX 66.7% → 94.4%。这些是 SearchTool 的证据检索重放结果，证明工具层召回改善，**不是**新的 GLM 端到端成绩；`external_glm_v0` 仍冻结不变，完整重跑须另存为 `external_glm_v1` 并使用三层评分口径。
+
+**已知边界：** 仍有 2 条 Typer 样本受通用词关键词提取影响；非 Python 文件继续使用正则回退。另，当前“按文件去重”发生在候选堆出堆后，能保证返回集去重；若后续出现单一文件在候选堆内挤占大量槽位，应将去重前移为每文件保留最佳候选。
+
+## 2026-07-18 — Agent 评测拆分严格、证据与语义三层
+
+- `app/pipeline/agent_eval_metrics.py` — 保留原关键词+文件规则并正式命名 `strict_completion_rate`；新增 `evidence_retrieval_rate`（预期文件是否进入 Evidence）和 `citation_grounded_rate`（答案 file:line 是否逐条回链 Agent Evidence）。
+- `app/pipeline/agent_eval_judge.py` — 新增独立、可恢复的 LLM-as-Judge：仅消费问题、期望摘要、Agent 答案和 Agent Evidence；强制关闭 thinking，持久化原始 Judge JSON、判决、理由和不可判定状态。语义正确率、部分正确率、扎根答案率、Judge 不可用率分开统计。
+- `tests/test_agent_eval.py` — 覆盖严格指标保留、结构化 Judge 输出、thinking 禁用、不可判定率及既有判决恢复；共 30 条评测测试通过。
+
+**口径：** strict/evidence/semantic/citation 是互补层，严禁用其中任一指标替代其余层；Judge 不浏览仓库，不能为 Agent 补找证据。
+
+## 2026-07-18 — 修复 Agent 评测预算耗尽统计
+
+- `app/pipeline/agent_eval_metrics.py` — 新增唯一预算判定函数 `detect_budget_exceeded()`：trace 含 `budget_exhausted`、任一 StepRecord 的 `decision=BUDGET`、或 `final_state/state.status=BUDGET` 任一成立即计超限；同时提取 `steps/files/tokens` 类型。
+- `app/pipeline/agent_eval_runner.py` — 每条结果写入统一计算的 `budget_exhausted` 与 `budget_type`，不再仅依赖 trace 文本。
+- `app/pipeline/freeze_external_baseline.py` — 冻结标签复用同一判定函数，避免报告与失败标签口径漂移。
+- `tests/test_agent_eval.py` — 覆盖 trace、StepRecord、最终 state 三个判定来源；验证 StepRecord 单独存在时也会进入超限率和类型统计。
+
+**原始结果审计：** 对 external_glm_v0 来源的 63 条逐条对照，旧字段与真实状态有 30 条不一致；新逻辑识别 30 条 `BUDGET`，逐条一致。v0 快照保持不变，后续报告基于修复后的计算逻辑重算。
+
+## 2026-07-18 — 冻结首次外部真实 LLM 基线 external_glm_v0
+
+- `app/pipeline/freeze_external_baseline.py` — 新增不可覆盖的基线冻结器：从三份外部 GLM 结果生成 `external_glm_v0`；目标文件用创建模式写入，存在即拒绝覆盖。
+- `eval_report/results_agent/external_glm_v0/external_{click,httpx,typer}_glm_v0.json` — 固化每条样本的仓库/commit、问题类型、模型配置、原始回答/降级原因、Evidence、StepRecord、预算配置与观测值、规则评分、可重叠失败标签。`tokens_used` 在 v0 运行器未持久化，明确记为 `null`，不伪造数据。
+
+**失败标签：** `keyword_miss`、`expected_file_miss`、`llm_fallback`、`budget_exhausted`、`ground_truth_ambiguous`（留待人工标注）、`tool_error`；标签可重叠，禁止按列相加当作失败总数。
+
+**冻结校验：** 三项目共 63 条，快照各 21 条。发现 Click/HTTPX 各有 15 条 StepRecord 标记 `BUDGET`，而旧汇总的 budget_overrun_rate 为 0，确认这是 runner 统计缺陷，后续修复不得回写或覆盖 v0。
+
+## 2026-07-18 — 外部三项目真实 GLM Agent 基线完成
+
+- `app/pipeline/agent_eval_runner.py` — 增加逐样本 checkpoint 与恢复：独立题每条立即持久化；续问链整组完成后持久化，恢复时不错误复用失效内存会话。
+- `eval_report/results_agent/external_{click,httpx,typer}_glm.{checkpoint,}json` — 固化 Click 8.4.2、HTTPX 0.28.1、Typer 0.27.0 各 21 条（五类问题 + 三组续问）的真实 GLM-4.5-Air 运行结果。
+
+**首轮外部基线：** Click 完成率 47.62% / 可追溯率 76.19% / 平均 1.89 步；HTTPX 19.05% / 80.95% / 2.06 步；Typer 4.76% / 57.14% / 1.94 步。三项目共 63 条，完成率为关键词+预期文件的规则代理指标，不能表述为真实回答正确率；项目间落差证明当前 Search/AST 证据路径仍有明显外部泛化缺口。
+
+## 2026-07-17 — 外部 Agent 冒烟评测：SearchTool 调用链修复
+
+- `app/tools/search_tool.py` — 将结果截断从 `git grep` 前移至相关性排序后，避免前 50 条文档命中挤掉后续源码定义；多关键词改用 Git 正确的 `-e pattern ... -- pathspec` 语法，修复关键词被误作 pathspec 导致的零命中。
+- `app/pipeline/eval_dataset.py` — 外部候选缺少显式答案关键词时，仅从已核验摘要中派生必答 target symbols，不再要求简明答案逐字枚举全部调查目标。
+- `app/pipeline/agent_eval_runner.py` — Windows stdout/stderr 强制 UTF-8，评测 JSON 输出不再因 GBK 编码崩溃。
+
+**验收：** Click 固定 commit 的前 5 条 mock 端到端冒烟集：任务完成率 100%、证据可追溯率 100%、平均 2.0 工具步、0% 预算超限；该结果验证检索/评测链路，不代表真实 LLM 质量。
+
+---
+
+## 2026-07-17 — 外部开源仓库 Investigation 评测集导入
+
+- `tests/__snapshots__/agent_eval_external_v1.json` — 导入 Click 8.4.2、HTTPX 0.28.1、Typer 0.27.0 的 63 条外部候选（45 条独立题 + 9 组续问链）；每条保留 `repo_url`、固定 `commit_sha`、证据文件/位置与可复验命令。
+- `app/pipeline/eval_dataset.py` — 增加独立 `agent_external` 加载模式，支持按 `project` 过滤，不与本项目 46 条 `agent_real` 混合；样本保留项目和固定提交元数据。
+- `app/pipeline/agent_eval_runner.py` — CLI 增加 `--dataset agent_external --project click|httpx|typer`，使 Agent 在相应 checkout 工作树上执行端到端评测。
+- `tests/test_agent_eval.py` — 增加外部数据集按项目加载、固定 SHA 完整性测试。
+
+**独立校验：** 对 63 条逐项核验本地 checkout HEAD、所有 `expected_evidence_files` 与 `verification_method` 必填字段，结果 `63 samples / 0 errors`。这证明候选数据与固定源码快照一致；语义答案质量仍需后续端到端运行与人工抽样复核。
+
+**验证：** `tests/test_agent_eval.py` → 25 passed；`git diff --check` 通过。
+
+**冒烟发现（尚未宣称为模型指标）：** Click 前 5 条 mock 端到端链路可以运行，但暴露外部 schema 的 `expected_keywords` → 内部 `expected_answer_keywords` 映射缺失，已兼容修复；同时多关键词 SearchTool 优先返回文档/变更记录而非源码，作为下一项外部泛化缺陷处理，不能将本次 0% mock 完成率解释为 Agent 能力。
+
+---
+
+## 2026-07-17 — Agent 评测口径校正与首次调查无证据恢复
+
+- `app/pipeline/agent_eval_metrics.py` — 将原误称为“续问节省率”的 `follow_up_steps / initial_steps` 明确为 `follow_up_relative_cost`（越低越好）；`follow_up_savings_rate` 改为非加权节省率 `1 - cost`，并新增按总工具步数计算的 `follow_up_weighted_savings_rate`。逐组明细同时输出相对成本与节省率，避免短首次调查造成等权误导。
+- `app/agent/investigator.py` — 内容搜索零证据时，状态机先执行一次受限的 `search_filename` 恢复；仅文件名恢复仍无证据时才 `NO_EVIDENCE`。该路径不会在内容搜索已命中时额外执行，保持常规搜索→AST/依赖链的效率与确定性。
+- `tests/test_agent.py` — 增加无证据恢复选择测试，以及 steps/files/tokens 三类预算在“上限前可继续、达到上限即阻塞”的临界测试。
+- `tests/test_agent_eval.py` — 更新节省率口径测试，新增加权指标防止短首次调查的等权偏差。
+
+**原因：** 首批续问结果中的 75% 实为“相对成本”而非节省；`NO_EVIDENCE` 的一步退出还会使后续追问从零开始。修正后，评测指标与产品行为均能如实反映调查效率。
+
+**验证：** 使用 `E:\Anaconda\envs\bid_rag\python.exe` 配合临时 pytest runner 执行 `tests/test_agent.py tests/test_agent_eval.py -q --tb=short` → 99 passed；`git diff --check` 通过。
+
+---
+
+## 2026-07-17 — Agent 真实评测集：46 条调查问题 + 5 项指标评测框架
+
+继 M1/M2/M3 落地后，按用户规划建立 Agent 评测集，用**真实代码库问题**（非模板生成）测量 InvestigationAgent 的实际表现。
+
+**新增文件：**
+- `tests/__snapshots__/agent_eval_real.json` — 46 条真实调查问题，覆盖全部 5 种问题类型（locate 8 + explain 8 + trace 8 + impact 6 + grep 8）+ 4 组续问对（8 条）。每条含扩展 ground truth（expected_answer_keywords/expected_evidence_files/expected_answer_summary）。
+- `app/pipeline/agent_eval_metrics.py` — `AgentEvalMetrics` 类，5 项指标：任务完成率（规则判定：关键词+文件匹配）、证据可追溯率（正则 file:line 引用）、按类型平均工具步数（排除 blocked 步骤）、预算超限率（细分 steps/files/tokens）、续问节省率（follow_up_steps/initial_steps）。`compute()` 聚合 + `to_dict()` + `summary()` Markdown 报告。
+- `app/pipeline/agent_eval_runner.py` — `AgentEvalRunner` 类：`run_all()` 按独立问题→续问链顺序执行 `investigate()`/`follow_up()`；支持 `--mock` 确定性模式（不上网）、`--top N`、`--json`、`--output`。CLI 入口：`python -m app.pipeline.agent_eval_runner`。
+- `tests/test_agent_eval.py` — 23 条测试（mock LLM）：TestRealDataset(3)+TestMetricsComputation(9)+TestJudgeHelpers(5)+TestRunnerMock(3)+TestAgentRealJsonIntegrity(3)。
+
+**修改文件：**
+- `app/pipeline/eval_dataset.py` — 新增 `RealInvestigationSample` dataclass（含 follow_up_group/follow_up_order）；`load_samples()` 新增 `mode="agent_real"` 分支，从 `agent_eval_real.json` 加载。
+
+**文档同步：**
+- `docs/INDEX.md` — 追加 4 个新文件条目；测试总数 236→259。
+- `_PLAN/plan_status.md` — 标记 Agent 评测集进度（🟡 进行中）。
+- `docs/CHANGELOG.md` — 本条目。
+
+**验证：** `python -m pytest tests/test_agent.py tests/test_agent_eval.py -v` → 94 passed。
+
+---
+
+## 2026-07-17 — V1.1 Investigation Agent 增强三增量（M1/M2/M3）全段落地
+
+本段工作按用户规划的 M1→M2→M3 三增量逐级实施，将 InvestigationAgent 从简单的”问题分类→固定计划→LLM 合成”升级为假设驱动的有限状态调查循环 + 三维预算 + 跨工具关联 + 续问上下文。**71 条 Agent 测试全绿（mock LLM，不上网）。**
+
+**A → B 因果链**：因为用户要求”先做 M1，然后建立 Agent 评测集”→ M1/M2/M3 均已落地；Agent 评测集（30–50 真实问题）为下一段工作。
+
+### M1：假设驱动的有限状态调查循环
+
+**核心改动 — `app/agent/investigator.py`：**
+- 新增 `StepRecord` — 单步调查记录：step/tool/params/status/evidence_count/hypothesis_before/hypothesis_after/decision/duration_ms；全局唯一可重放。
+- 新增 `InvestigationState` — 调查状态机：goal/keywords/hypotheses/confirmed/evidence/steps/files_visited + 派生属性 `steps_remaining`/`is_budget_exhausted`。
+- 重写 `investigate()` — 主循环：`_seed_hypotheses` → while steps_remaining > 0: `_select_next_tool` → `_execute_step` → `_update_hypotheses` → `_evaluate` → break if != CONTINUE。
+- 确定性工具选择：按 goal（locate/explain/trace/grep）定义优先级表 `_TOOL_PRIORITY`，`_select_next_tool()` 从表中选择第一个未使用且适用当前假设的工具。
+- 安全退出三层保护：步数上限(6)、证据门禁(某步 0 Evidence → NO_EVIDENCE→STOP)、无工具可选用(return None)。
+- 保留 `_classify()`、`_extract_keywords()` 不变。
+
+**支撑文件更新：**
+- `app/agent/__init__.py` — 导出 `InvestigationState`、`StepRecord`。
+- `app/api/schemas.py` — `InvestigateResponse` 新增 `steps: list[dict]` 字段。
+- `app/cli.py` — 调查输出增加步骤详情（工具/状态/证据数/决策标记）；stdout 强制 UTF-8 解决 Windows GBK 终端编码错误。
+- `tests/test_agent.py` — 35 条测试（重写全部现有 18 条 + 新增 17 条 M1 专项）：TestClassify(6)+TestExtractKeywords(5)+TestToolSelection(5)+TestInvestigateWithMockLLM(8)+TestStateMachine(5)+TestHypothesisFlow(6)。
+
+### M2：三维预算 + 跨工具关联 + LLM 辅助排序
+
+**核心改动 — `app/agent/investigator.py`：**
+- `InvestigationState` 扩展三维预算：`steps_max=6`/`files_max=50`/`token_budget=16000` + `files_read`/`tokens_used`；新增 `is_files_exhausted`/`is_token_exhausted` 派生属性。
+- `_check_budget()` — 三维预算前置检查，返回阻塞原因字符串。
+- `StepRecord` 新增 `budget_reason` 字段；`_evaluate()` 返回 `(decision, budget_reason)` 元组。
+- `_select_next_tool()`：从 static 改为 instance 方法；新增 `_correlate_candidates()` 跨工具关联链（Search→AST→Dependency→Knowledge）；新增 `_llm_rank_tools()` LLM 排序（白名单校验 + 失败回退确定性优先级）；新增 `_is_duplicate()` 等效工具去重（参数哈希）。
+- 问题类型新增 “impact”（修改 X 会影响什么？）。
+- `_estimate_tokens(char_count)` — token 估算（chars/4，代码比自然语言密集）。
+- `_read_python_files()` — 经 WorkspaceManager 受控快照读取 .py 文件。
+- `_ingest_search_result()`/`_ingest_ast_result()` — 从工具结果提取 files_visited。
+
+**测试扩展 — `tests/test_agent.py`（35→52）：**
+- `TestBudget3D`（4）— 文件/token 耗尽/初始未耗尽/极小文件预算。
+- `TestCrossToolCorrelation`（3）— 搜索→AST 优先/AST→dependency 优先/单候选不变。
+- `TestLLMRanking`（3）— 有效返回/无效回退/单候选跳过。
+- `TestDedup`（2）— 等效工具去重。
+- `TestM2Integration`（5）— 多工具链/budget_reason 字段/跨工具关联验证。
+- `TestHypothesisFlow` 从 3→5（impact 类型 + AST→dependency 假设链）。
+- `TestClassify` 从 6→7（impact 类型）。
+
+### M3：续问上下文 + 会话持久化
+
+**核心改动 — `app/agent/investigator.py`：**
+- 新增 `InvestigationStore` 类 — `save(id, state)`/`load(id)`/`delete(id)`/`session_count`；内存 dict 存储，支持跨轮证据复用。
+- `InvestigationResult` 新增字段：`investigation_id`（`inv_` + 12 位 hex，基于 question+time+uuid 的 MD5）、`is_follow_up`、`reused_evidence_refs`。
+- 新增 `follow_up(repo_path, investigation_id, question)` — 续问入口：加载会话→匹配已有证据→充足时零工具调用合成答案→不足时恢复状态追加步骤。
+- 新增 `_match_existing_evidence(session, question, keywords)` — 关键词匹配已有证据，返回引用列表。
+- 新增 `_restore_state(session, new_question)` — 从持久化 session 重建 InvestigationState（含步数/文件数/token 消耗）。
+- 新增 `_synthesize_follow_up(result, session, question, matched_refs, ...)` — 基于已有证据合成续问答案，带跨轮引用编号 [ref1][ref2]。
+- 新增 `_new_investigation_id(question)` — 生成唯一会话 ID。
+- `investigate()` 结束时自动 `store.save()` 持久化状态。
+
+**支撑文件更新：**
+- `app/agent/__init__.py` — 导出 `InvestigationStore`。
+- `app/api/schemas.py` — `InvestigateResponse` 新增 `investigation_id`、`is_follow_up`、`reused_evidence_refs`。
+- `app/cli.py` — `investigate` 子命令新增 `--follow-up <inv_id>` 参数；输出中显示 investigation_id、续问状态、复用证据引用、预算原因。
+- `tests/test_agent.py`（52→71）：新增 `TestInvestigationId`(4)+`TestInvestigationStore`(5)+`TestFollowUp`(10)；导入 `Evidence`/`CodeLocation`。
+
+**文档同步：**
+- `docs/INDEX.md` — 更新 agent/__init__.py、investigator.py、schemas.py、cli.py、test_agent.py 条目；测试总数 217→236。
+- `_PLAN/plan_status.md` — V1.1「多轮探索 UX」翻转为 ✅；优先级首位调整为「Agent 评测集构建」。
+- `docs/CHANGELOG.md` — 本条目。
+
+**验证：** `python -m pytest tests/test_agent.py -v` → 71 passed。
+
+---
+
+## 2026-07-17 — 修复 GitHub Actions 缺失 pytest 依赖
+
+- `requirements.txt` — 增加 `pytest>=7.4.0`。CI 的 `test` job 只安装此文件中的依赖，但此前未声明 pytest，导致 Python 3.11 报 `No module named pytest`，Python 3.10 与后续 golden/recovery job 被连带取消。
+
+**验证：** GitHub Actions 下次 push 将先安装 pytest，再执行既有测试矩阵。
+
+---
+
 ## 2026-07-16 ~ 2026-07-17 — Report 级评测落地、证据链修复、漏报四项补强与真实 GLM 基准
 
 本段工作跨三个主题，最终产出首个有效的真实模型基准：static P 97.47% / R 64.71% / F1 77.78%；llm P 95.62% / R 77.51% / F1 85.62%（llm 相对 static F1 +7.8pp，验证「确定性工具可靠扫描 + LLM 语义补漏」架构方向）。口径警告：真值来自合成样本 + LLM-as-Judge，属系统内对比指标，不得表述为生产准确率。
@@ -696,34 +943,33 @@
 
 ---
 
-## 当前节点（2026-07-13）
+## 当前节点（2026-07-17）
 
 ### 项目整体完成度
 
 | 里程碑 | 状态 |
 |--------|------|
 | M0 数据契约 | ✅ |
-| M1 工具层 (Git/AST/Ruff/Bandit/Dependency) | ✅ |
+| M1 工具层 (Git/AST/Ruff/Bandit/Dependency/Search) | ✅ |
 | M2 固定审查管道 (PlanBuilder→Executor→Aggregator→Report) | ✅ |
 | M3 LLM 语义审查器 + 知识检索 | ✅ |
 | M4 评测体系 + 700 条版控数据集 | ✅ |
 | M5 服务化 (FastAPI + CLI + Docker) | ✅ |
 | M5.1 质量工程 (容错/黄金/回归/性能) | ✅ |
-| V1.1 Investigation Agent + CI/CD | ✅ |
+| V1.1 Investigation Agent M1/M2/M3 (假设驱动状态机 + 预算 + 续问) | ✅ |
+| V1.1 Agent 真实评测集 (46 问题 + 5 指标框架) | ✅ |
 
-**测试**: 173 条全绿 (`python -m pytest tests/ -q -m "not slow and not golden"`)
+**测试**: 259 条全绿 (`python -m pytest tests/ -q -m "not slow and not golden"`)；Agent 专项 71 + Agent 评测 23 = 94 条。
 
 ### 下次继续入口
 
-1. **抽 50 条人工确认 ground truth** — 计划书要求双层校验，当前 700 条全部由规则生成，尚未人工抽样验证
-2. **复查 LLM 生成失败的 5 批** — `eval_generator.py` 28 批中 5 批 JSON 解析失败，change_summary 为空，可选择性补生成
-3. **扩充非 Python 语言覆盖** — 当前 512/550 是 Python，JS/TS/Java/Go 仅 18 条
-4. **V2 候选** — 前端、GitHub PR inline 评论、多语言插件、人员权限
+1. **真实 LLM 跑 Agent 评测基线** — `python -m app.pipeline.agent_eval_runner --top 10`（有 API key 时），产出首批 5 项指标基线数据
+2. **评测真值校准** — 人工校验 ground truth（先 50 条）+ 外部真实项目样本
+3. **微调 Planner** — 刻意放最后：规则 Planner 已有效，先做 Agent 增强更划算
 
 ### 当前仓库状态
 
 - **分支**: master
-- **最后 commit**: `c777516` feat: V1.1 Investigation Agent + CI/CD + M4 最终评测集(700条)
-- **已 push**: 是
+- **已 push**: 否（本段 M3 CHANGELOG 待 push）
 - **数据集**: `tests/__snapshots__/eval_dataset_v2.json` (700 条)
 

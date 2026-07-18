@@ -1,0 +1,36 @@
+{
+  "total": 21,
+  "semantic_completion_rate": 0.125,
+  "semantic_partial_rate": 0.0625,
+  "semantic_incorrect_rate": 0.0,
+  "judge_unjudgeable_rate": 0.8125,
+  "grounded_answer_rate": 0.23809523809523808,
+  "judge_unavailable_rate": 0.0,
+  "judge_invalid_schema_rate": 0.23809523809523808,
+  "judge_effective_rate": 0.7619047619047619,
+  "retry_success_count": 0
+}
+{
+  "total": 21,
+  "semantic_completion_rate": 0.05,
+  "semantic_partial_rate": 0.15,
+  "semantic_incorrect_rate": 0.0,
+  "judge_unjudgeable_rate": 0.8,
+  "grounded_answer_rate": 0.2857142857142857,
+  "judge_unavailable_rate": 0.0,
+  "judge_invalid_schema_rate": 0.047619047619047616,
+  "judge_effective_rate": 0.9523809523809523,
+  "retry_success_count": 0
+}
+{
+  "total": 21,
+  "semantic_completion_rate": 0.1111111111111111,
+  "semantic_partial_rate": 0.16666666666666666,
+  "semantic_incorrect_rate": 0.0,
+  "judge_unjudgeable_rate": 0.7222222222222222,
+  "grounded_answer_rate": 0.5714285714285714,
+  "judge_unavailable_rate": 0.0,
+  "judge_invalid_schema_rate": 0.14285714285714285,
+  "judge_effective_rate": 0.8571428571428571,
+  "retry_success_count": 0
+}

@@ -1,0 +1,2339 @@
+[
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_locate_01",
+    "question_type": "locate",
+    "question": "Command 类在 click 项目的哪个文件中定义？它的行号大约是多少？",
+    "target_symbols": [
+      "Command"
+    ],
+    "expected_answer_summary": "Command 类定义在 src/click/core.py 第 956 行附近，继承自 object，是 click 的核心命令类。",
+    "expected_evidence_files": [
+      "src/click/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "class Command",
+        "line_hint": 956
+      }
+    ],
+    "verification_method": "grep -n 'class Command(' src/click/core.py && grep -n 'class Command' src/click/core.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_locate_02",
+    "question_type": "locate",
+    "question": "CliRunner 类在 click 的哪个模块中定义？它是用来做什么的？",
+    "target_symbols": [
+      "CliRunner"
+    ],
+    "expected_answer_summary": "CliRunner 定义在 src/click/testing.py 第 317 行，用于在测试中隔离运行 click 命令，捕获输出和返回值。",
+    "expected_evidence_files": [
+      "src/click/testing.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/testing.py",
+        "symbol": "class CliRunner",
+        "line_hint": 317
+      }
+    ],
+    "verification_method": "grep -n 'class CliRunner' src/click/testing.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_locate_03",
+    "question_type": "locate",
+    "question": "click 的所有异常类（如 ClickException, UsageError, BadParameter）定义在哪个文件中？",
+    "target_symbols": [
+      "ClickException",
+      "UsageError",
+      "BadParameter",
+      "MissingParameter",
+      "NoSuchOption"
+    ],
+    "expected_answer_summary": "所有异常类定义在 src/click/exceptions.py。ClickException(35) 是基类，UsageError(68)、BadParameter(114)、MissingParameter(159) 等均继承自它。",
+    "expected_evidence_files": [
+      "src/click/exceptions.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/exceptions.py",
+        "symbol": "class ClickException",
+        "line_hint": 35
+      },
+      {
+        "file": "src/click/exceptions.py",
+        "symbol": "class UsageError",
+        "line_hint": 68
+      },
+      {
+        "file": "src/click/exceptions.py",
+        "symbol": "class BadParameter",
+        "line_hint": 114
+      }
+    ],
+    "verification_method": "grep -n '^class.*Error\\|^class.*Exception' src/click/exceptions.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_explain_01",
+    "question_type": "explain",
+    "question": "Context.invoke() 方法的作用是什么？它和 Command.invoke() 有什么区别？",
+    "target_symbols": [
+      "Context",
+      "Context.invoke",
+      "Command.invoke"
+    ],
+    "expected_answer_summary": "Context.invoke() (core.py:853) 负责调用回调函数，支持结果回调链。Command.invoke() (core.py:1339) 是命令执行入口，负责创建 Context、解析参数、调用 Context.invoke() 执行回调。Context.invoke 更底层，Command.invoke 更高级。",
+    "expected_evidence_files": [
+      "src/click/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "Context.invoke",
+        "line_hint": 853
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "Command.invoke",
+        "line_hint": 1339
+      }
+    ],
+    "verification_method": "grep -n 'def invoke' src/click/core.py && python -c \"import inspect; from click.core import Command, Context; print(inspect.getsource(Command.invoke)[:500])\"",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_explain_02",
+    "question_type": "explain",
+    "question": "click 的 ParamType 类体系是如何工作的？Choice 类型如何限制参数可选值？",
+    "target_symbols": [
+      "ParamType",
+      "Choice",
+      "convert"
+    ],
+    "expected_answer_summary": "ParamType (types.py:42) 是所有参数类型的基类，定义 convert() 方法。Choice (types.py:284) 继承 ParamType，覆写 convert() (types.py:340) 用于校验值是否在预定义选项中。其他子类型包括 IntParamType、FloatParamType、BoolParamType、File、Path、Tuple 等。",
+    "expected_evidence_files": [
+      "src/click/types.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/types.py",
+        "symbol": "class ParamType",
+        "line_hint": 42
+      },
+      {
+        "file": "src/click/types.py",
+        "symbol": "class Choice",
+        "line_hint": 284
+      },
+      {
+        "file": "src/click/types.py",
+        "symbol": "Choice.convert",
+        "line_hint": 340
+      }
+    ],
+    "verification_method": "grep -n 'class.*ParamType\\|class Choice\\|class IntRange\\|class DateTime' src/click/types.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_explain_03",
+    "question_type": "explain",
+    "question": "click 的 @command 装饰器和 @group 装饰器有什么区别？各自适用什么场景？",
+    "target_symbols": [
+      "command",
+      "group",
+      "Command",
+      "Group"
+    ],
+    "expected_answer_summary": "@command (decorators.py:168) 创建单层 CLI 命令，@group (decorators.py:293) 创建支持子命令的命令组。Group 继承 Command，增加 add_command()、resolve_command()、get_command() 等方法管理子命令层级。适用场景：单功能工具用 command，多子命令工具（如 git）用 group。",
+    "expected_evidence_files": [
+      "src/click/decorators.py",
+      "src/click/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/decorators.py",
+        "symbol": "def command",
+        "line_hint": 168
+      },
+      {
+        "file": "src/click/decorators.py",
+        "symbol": "def group",
+        "line_hint": 293
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "class Group",
+        "line_hint": 1587
+      }
+    ],
+    "verification_method": "grep -n 'def command\\|def group' src/click/decorators.py && grep -n 'class Group' src/click/core.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_fu_01a",
+    "question_type": "explain",
+    "question": "Context 类有哪些主要方法和属性？",
+    "target_symbols": [
+      "Context",
+      "Context.invoke",
+      "Context.forward",
+      "Context.exit"
+    ],
+    "expected_answer_summary": "Context 类 (core.py:204) 主要方法：invoke() (853) 调用回调，forward() (909) 转发命令，exit() 设置退出码，get_parameter_source() (937) 获取参数来源。主要属性：command、parent、params、args、info_name、resilient_parsing 等。",
+    "expected_evidence_files": [
+      "src/click/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "class Context",
+        "line_hint": 204
+      }
+    ],
+    "verification_method": "grep -n 'def \\w\\+' src/click/core.py | sed -n '/class Context/,/class /p' | head -30",
+    "needs_verification": false,
+    "follow_up_group": "fu_click_ctx",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_fu_01b",
+    "question_type": "explain",
+    "question": "Context.invoke() 和 Context.forward() 在什么场景下各自适用？它们的关键区别是什么？",
+    "target_symbols": [
+      "Context.invoke",
+      "Context.forward"
+    ],
+    "expected_answer_summary": "Context.invoke() (853) 直接在当前 Context 中执行回调函数，适用于执行已解析的命令回调。Context.forward() (909) 接收另一个 Command 对象，为其创建新 Context（继承当前 parent/ info_name），适用于命令间的转发/链式调用。关键区别：forward 创建新 Context，invoke 复用当前 Context。",
+    "expected_evidence_files": [
+      "src/click/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "Context.invoke",
+        "line_hint": 853
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "Context.forward",
+        "line_hint": 909
+      }
+    ],
+    "verification_method": "sed -n '853,910p' src/click/core.py",
+    "needs_verification": false,
+    "follow_up_group": "fu_click_ctx",
+    "follow_up_order": 1
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_fu_02a",
+    "question_type": "explain",
+    "question": "click.Option 类中，prompt 参数是如何实现的？用户交互输入的过程是怎样的？",
+    "target_symbols": [
+      "Option",
+      "Option.prompt",
+      "prompt_func"
+    ],
+    "expected_answer_summary": "Option (core.py:2791) 的 prompt 参数启用交互式输入。当参数未从命令行提供时，Option 调用 termui.py 中的 prompt() 函数提示用户输入。相关参数包括 hide_input、confirmation_prompt、prompt_required 控制交互行为。Option.type_cast_value() 负责类型转换。",
+    "expected_evidence_files": [
+      "src/click/core.py",
+      "src/click/termui.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "class Option",
+        "line_hint": 2791
+      },
+      {
+        "file": "src/click/termui.py",
+        "symbol": "def prompt",
+        "line_hint": 140
+      }
+    ],
+    "verification_method": "grep -n 'prompt' src/click/core.py | head -20 && grep -n 'def prompt' src/click/termui.py",
+    "needs_verification": false,
+    "follow_up_group": "fu_click_opt",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_fu_02b",
+    "question_type": "explain",
+    "question": "Option 的 confirmation_prompt 和 hide_input 参数是如何配合 prompt 实现密码输入场景的？",
+    "target_symbols": [
+      "Option",
+      "confirmation_prompt",
+      "hide_input",
+      "prompt"
+    ],
+    "expected_answer_summary": "hide_input=True 时，termui.prompt() 使用 getpass 隐藏输入字符。confirmation_prompt=True 时，首次输入后会再次提示确认，比较两次输入是否一致。两者共同实现安全的密码输入流程：隐藏回显 + 二次确认。",
+    "expected_evidence_files": [
+      "src/click/core.py",
+      "src/click/termui.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "class Option.__init__",
+        "line_hint": 2791
+      },
+      {
+        "file": "src/click/termui.py",
+        "symbol": "def prompt",
+        "line_hint": 140
+      }
+    ],
+    "verification_method": "grep -n 'hide_input\\|confirmation_prompt' src/click/core.py | head -10",
+    "needs_verification": false,
+    "follow_up_group": "fu_click_opt",
+    "follow_up_order": 1
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_fu_03a",
+    "question_type": "trace",
+    "question": "Command.main() 方法的完整执行流程是怎样的？从接收 sys.argv 到最终返回退出码经历了哪些步骤？",
+    "target_symbols": [
+      "Command.main",
+      "Command.make_context",
+      "Command.invoke"
+    ],
+    "expected_answer_summary": "Command.main() (core.py:1422) 执行流程：1) 调用 make_context() (1266) 创建 Context，解析命令行参数；2) 调用 invoke() (1339) 在 Context 中执行命令回调；3) 异常处理：捕获 SystemExit(0) 正常退出、ClickException 打印错误后退出。最终返回退出码。",
+    "expected_evidence_files": [
+      "src/click/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "Command.main",
+        "line_hint": 1422
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "Command.make_context",
+        "line_hint": 1266
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "Command.invoke",
+        "line_hint": 1339
+      }
+    ],
+    "verification_method": "sed -n '1422,1500p' src/click/core.py",
+    "needs_verification": false,
+    "follow_up_group": "fu_click_main",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_fu_03b",
+    "question_type": "trace",
+    "question": "Command.main() 方法中，standalone_mode 参数的作用是什么？设为 True 和 False 有什么区别？",
+    "target_symbols": [
+      "Command.main",
+      "standalone_mode"
+    ],
+    "expected_answer_summary": "standalone_mode=True (默认) 时，main() 会自动处理所有异常（SystemExit、ClickException），返回退出码，适合作为 CLI 入口。standalone_mode=False 时异常会向上传播，不自动处理，适合作为库函数调用，由调用者决定异常处理策略。",
+    "expected_evidence_files": [
+      "src/click/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "Command.main",
+        "line_hint": 1422
+      }
+    ],
+    "verification_method": "sed -n '1422,1450p' src/click/core.py && sed -n '1480,1510p' src/click/core.py",
+    "needs_verification": false,
+    "follow_up_group": "fu_click_main",
+    "follow_up_order": 1
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_trace_01",
+    "question_type": "trace",
+    "question": "追踪 Group 命令从用户输入到最终回调执行的完整调用链：用户输入 'mycli subcmd --flag' 后，Group.invoke() 如何找到并执行正确的子命令回调？",
+    "target_symbols": [
+      "Group.invoke",
+      "Group.resolve_command",
+      "Context.invoke",
+      "Command.invoke"
+    ],
+    "expected_answer_summary": "调用链: Group.main() → Command.main() (core.py:1422) → make_context() (core.py:1266) → parse_args() (core.py:1922) → Group.invoke() (core.py:1936) → resolve_command() (core.py:2004) 匹配子命令名 → Command.invoke() (core.py:1339) → Context.invoke() (core.py:853) 执行回调。",
+    "expected_evidence_files": [
+      "src/click/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "Group.invoke",
+        "line_hint": 1936
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "Group.resolve_command",
+        "line_hint": 2004
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "Command.main",
+        "line_hint": 1422
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "Context.invoke",
+        "line_hint": 853
+      }
+    ],
+    "verification_method": "grep -n 'def invoke\\|def resolve_command\\|def main\\|def make_context' src/click/core.py | head -20",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_trace_02",
+    "question_type": "trace",
+    "question": "追踪 Context.forward() 的调用链：如果一个命令调用 ctx.forward(other_cmd)，Context 如何将当前参数和状态传递给目标命令？",
+    "target_symbols": [
+      "Context.forward",
+      "Context.invoke",
+      "Command.make_context"
+    ],
+    "expected_answer_summary": "Context.forward() (core.py:909) 接收目标 Command 和参数，内部调用 cmd.make_context() 创建新 Context（继承当前 info_name、parent 等），然后调用 cmd.invoke() 在新的 Context 中执行目标命令。最终仍然走 Command.invoke → Context.invoke 路径。",
+    "expected_evidence_files": [
+      "src/click/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "Context.forward",
+        "line_hint": 909
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "Command.make_context",
+        "line_hint": 1266
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "Context.invoke",
+        "line_hint": 853
+      }
+    ],
+    "verification_method": "grep -n 'def forward' src/click/core.py && sed -n '909,940p' src/click/core.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_trace_03",
+    "question_type": "trace",
+    "question": "追踪 click 选项的值的来源：当用户既设置了环境变量又传了命令行参数，Context.get_parameter_source() 如何判定优先级？",
+    "target_symbols": [
+      "Context.get_parameter_source",
+      "ParameterSource",
+      "Option.consume_value"
+    ],
+    "expected_answer_summary": "Context.get_parameter_source() (core.py:937) 返回 ParameterSource 枚举值 (core.py:165)。命令行参数优先级最高 (COMMANDLINE)，环境变量次之 (ENVIRONMENT)，最后是默认值 (DEFAULT)。Option 在 consume_value 中按此顺序尝试取值，首个命中即返回。",
+    "expected_evidence_files": [
+      "src/click/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "Context.get_parameter_source",
+        "line_hint": 937
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "class ParameterSource",
+        "line_hint": 165
+      }
+    ],
+    "verification_method": "grep -n 'class ParameterSource\\|def get_parameter_source\\|def consume_value' src/click/core.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_impact_01",
+    "question_type": "impact",
+    "question": "如果修改 Command.make_context() 方法的返回值结构，会影响 click 框架的哪些功能？",
+    "target_symbols": [
+      "Command.make_context",
+      "Command.main",
+      "Group.invoke",
+      "Context"
+    ],
+    "expected_answer_summary": "影响范围广泛：make_context() (core.py:1266) 被 Command.main() (core.py:1422) 调用以创建 Context，Context 承载参数解析结果和父级引用。Group.invoke() (core.py:1936)、Group.resolve_command() (core.py:2004) 都依赖 Context 携带的 args。修改返回值会破坏整个命令执行链、参数解析链和嵌套命令层级。",
+    "expected_evidence_files": [
+      "src/click/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "Command.make_context",
+        "line_hint": 1266
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "Command.main",
+        "line_hint": 1422
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "Group.invoke",
+        "line_hint": 1936
+      }
+    ],
+    "verification_method": "grep -rn 'make_context\\|\\.ctx\b' src/click/core.py | head -30",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_impact_02",
+    "question_type": "impact",
+    "question": "如果删除 BaseCommand 或修改 Command 的 class hierarchy（不再继承 BaseCommand），对 click 生态系统的影响有多大？",
+    "target_symbols": [
+      "Command",
+      "Group",
+      "BaseCommand",
+      "MultiCommand"
+    ],
+    "expected_answer_summary": "影响极严重：Command 继承链为 object → Command (core.py:956)，Group (core.py:1587) 继承 Command，CommandCollection (core.py:2057) 继承 Group。修改此层级会破坏：所有命令装饰器、Group 的子命令机制、参数共享、Context 传递、帮助系统格式化，整个 CLI 框架将不可用。",
+    "expected_evidence_files": [
+      "src/click/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/core.py",
+        "symbol": "class Command",
+        "line_hint": 956
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "class Group",
+        "line_hint": 1587
+      },
+      {
+        "file": "src/click/core.py",
+        "symbol": "class CommandCollection",
+        "line_hint": 2057
+      }
+    ],
+    "verification_method": "grep -n 'class.*Command\\|class.*Group' src/click/core.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_impact_03",
+    "question_type": "impact",
+    "question": "如果 ClickException 的 show() 方法签名从 show(file) 改为 show(file=None)，哪些地方需要同步修改？",
+    "target_symbols": [
+      "ClickException",
+      "ClickException.show",
+      "echo"
+    ],
+    "expected_answer_summary": "ClickException.show() (exceptions.py:35 附近) 负责打印错误信息。所有子类（UsageError、BadParameter、MissingParameter、NoSuchOption、BadOptionUsage、BadArgumentUsage、FileError 共 7 个）都通过继承使用 show()。还需检查 echo() (utils.py:233) 和 CliRunner.invoke() 对 show() 的调用。",
+    "expected_evidence_files": [
+      "src/click/exceptions.py",
+      "src/click/utils.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/exceptions.py",
+        "symbol": "class ClickException",
+        "line_hint": 35
+      },
+      {
+        "file": "src/click/utils.py",
+        "symbol": "def echo",
+        "line_hint": 233
+      }
+    ],
+    "verification_method": "grep -rn '\\.show()\\|raise.*Error\\|except.*Error' src/click/ | head -30",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_grep_01",
+    "question_type": "grep",
+    "question": "在 click 整个代码库中，搜索所有使用了 echo() 函数进行输出的位置。",
+    "target_symbols": [
+      "echo",
+      "secho",
+      "echo_via_pager"
+    ],
+    "expected_answer_summary": "echo() 在 utils.py:233 定义，secho 和 echo_via_pager 在 termui.py 定义。echo 在多个文件中被使用：core.py 的帮助输出 (format_options, format_commands, show_default)、decorators.py 的 version_option 回调、exceptions.py 的 show() 方法、testing.py 的 CliRunner 输出捕获等。",
+    "expected_evidence_files": [
+      "src/click/utils.py",
+      "src/click/termui.py",
+      "src/click/core.py",
+      "src/click/decorators.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/utils.py",
+        "symbol": "def echo",
+        "line_hint": 233
+      },
+      {
+        "file": "src/click/termui.py",
+        "symbol": "def echo_via_pager",
+        "line_hint": 47
+      }
+    ],
+    "verification_method": "grep -rn 'echo(' src/click/ --include='*.py' | grep -v test | grep -v __pycache__",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_grep_02",
+    "question_type": "grep",
+    "question": "在 click 代码库中搜索所有使用 type=str 或 type=int 定义 click.Option 的位置。",
+    "target_symbols": [
+      "Option",
+      "str",
+      "int",
+      "FloatParamType",
+      "IntParamType"
+    ],
+    "expected_answer_summary": "click 的 Option 参数类型在 types.py 中定义：IntParamType(678)、FloatParamType(710)、BoolParamType(761)、STRING 类型等。Option 通过 type= 关键字在 decorators.py、core.py 的帮助输出中使用，test 目录有大量示例。",
+    "expected_evidence_files": [
+      "src/click/types.py",
+      "src/click/decorators.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/types.py",
+        "symbol": "class IntParamType",
+        "line_hint": 678
+      },
+      {
+        "file": "src/click/types.py",
+        "symbol": "class BoolParamType",
+        "line_hint": 761
+      }
+    ],
+    "verification_method": "grep -rn 'type=str\\|type=int\\|type=bool\\|type=click\\.' src/click/ --include='*.py' | head -30",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "click",
+    "repo_url": "https://github.com/pallets/click",
+    "tag": "8.4.2",
+    "commit_sha": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+    "id": "ext_click_grep_03",
+    "question_type": "grep",
+    "question": "在 click 代码库中搜索所有 raise Abort() 的位置，Abort 异常用于什么场景？",
+    "target_symbols": [
+      "Abort",
+      "Exit",
+      "ClickException"
+    ],
+    "expected_answer_summary": "Abort (exceptions.py:362) 是特殊的 SystemExit 包装，用于静默中止命令执行。Exit (exceptions.py:366) 携带退出码。Abort 在 termui.py 的 confirm()/prompt() 中，用户在交互中输入中断信号时抛出，不打印错误信息直接退出。",
+    "expected_evidence_files": [
+      "src/click/exceptions.py",
+      "src/click/termui.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "src/click/exceptions.py",
+        "symbol": "class Abort",
+        "line_hint": 362
+      },
+      {
+        "file": "src/click/exceptions.py",
+        "symbol": "class Exit",
+        "line_hint": 366
+      }
+    ],
+    "verification_method": "grep -rn 'raise Abort\\|except Abort\\|Abort()' src/click/ --include='*.py'",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_locate_01",
+    "question_type": "locate",
+    "question": "httpx.Client 类在哪个文件中定义？它的行号大约是多少？",
+    "target_symbols": [
+      "Client"
+    ],
+    "expected_answer_summary": "Client 类定义在 httpx/_client.py 第 594 行，继承 BaseClient，是 httpx 的同步 HTTP 客户端主类。",
+    "expected_evidence_files": [
+      "httpx/_client.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_client.py",
+        "symbol": "class Client",
+        "line_hint": 594
+      }
+    ],
+    "verification_method": "grep -n 'class Client' httpx/_client.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_locate_02",
+    "question_type": "locate",
+    "question": "httpx 的 URL 类定义在哪个文件中？它支持哪些 URL 操作？",
+    "target_symbols": [
+      "URL"
+    ],
+    "expected_answer_summary": "URL 类定义在 httpx/_urls.py 第 15 行，提供 URL 解析、拼接、参数编码等功能。包含 scheme、host、port、path、query 等属性，支持 copy_with() (327) 修改 URL 组件和 is_relative_url() (320) 判断相对 URL。",
+    "expected_evidence_files": [
+      "httpx/_urls.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_urls.py",
+        "symbol": "class URL",
+        "line_hint": 15
+      }
+    ],
+    "verification_method": "grep -n 'class URL' httpx/_urls.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_locate_03",
+    "question_type": "locate",
+    "question": "httpx 的所有异常类定义在哪个文件中？列出主要的异常层次结构。",
+    "target_symbols": [
+      "HTTPError",
+      "RequestError",
+      "TransportError",
+      "TimeoutException",
+      "HTTPStatusError"
+    ],
+    "expected_answer_summary": "所有异常定义在 httpx/_exceptions.py。层次结构：HTTPError(74) 是基类 → RequestError(107) 网络层错误 → TransportError(123)/TimeoutException(132)/NetworkError(167)；HTTPStatusError(258) 是 HTTP 状态码错误。InvalidURL(271)、TooManyRedirects(249)、DecodingError(243) 等独立继承。",
+    "expected_evidence_files": [
+      "httpx/_exceptions.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_exceptions.py",
+        "symbol": "class HTTPError",
+        "line_hint": 74
+      },
+      {
+        "file": "httpx/_exceptions.py",
+        "symbol": "class RequestError",
+        "line_hint": 107
+      },
+      {
+        "file": "httpx/_exceptions.py",
+        "symbol": "class HTTPStatusError",
+        "line_hint": 258
+      }
+    ],
+    "verification_method": "grep -n '^class' httpx/_exceptions.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_explain_01",
+    "question_type": "explain",
+    "question": "httpx 的 Client.send() 方法如何处理认证和重定向？",
+    "target_symbols": [
+      "Client.send",
+      "_send_handling_auth",
+      "_send_handling_redirects"
+    ],
+    "expected_answer_summary": "Client.send() (_client.py:869) 是核心发送方法。内部通过 _send_handling_auth() (930) 处理认证挑战（支持 BasicAuth、DigestAuth 的 401 响应重试），_send_handling_redirects() (964) 处理 HTTP 重定向（根据 allow_redirects 和历史记录），最终调用 _send_single_request() (1001) 执行单次请求。",
+    "expected_evidence_files": [
+      "httpx/_client.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_client.py",
+        "symbol": "Client.send",
+        "line_hint": 869
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "_send_handling_auth",
+        "line_hint": 930
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "_send_handling_redirects",
+        "line_hint": 964
+      }
+    ],
+    "verification_method": "grep -n 'def send\\|_send_handling_auth\\|_send_handling_redirects\\|_send_single_request' httpx/_client.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_explain_02",
+    "question_type": "explain",
+    "question": "httpx 的 DigestAuth 认证机制是如何实现的？它和 BasicAuth 有什么关键区别？",
+    "target_symbols": [
+      "DigestAuth",
+      "BasicAuth",
+      "Auth"
+    ],
+    "expected_answer_summary": "BasicAuth (httpx/_auth.py:126) 简单地在请求头中添加 Base64 编码的用户名:密码。DigestAuth (httpx/_auth.py:175) 更安全，实现 RFC 2617 摘要认证：首先发送无认证请求获取 nonce，然后计算 MD5 哈希响应。Auth (22) 是认证基类，FunctionAuth (113) 支持自定义认证函数。",
+    "expected_evidence_files": [
+      "httpx/_auth.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_auth.py",
+        "symbol": "class Auth",
+        "line_hint": 22
+      },
+      {
+        "file": "httpx/_auth.py",
+        "symbol": "class BasicAuth",
+        "line_hint": 126
+      },
+      {
+        "file": "httpx/_auth.py",
+        "symbol": "class DigestAuth",
+        "line_hint": 175
+      }
+    ],
+    "verification_method": "grep -n 'class.*Auth' httpx/_auth.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_explain_03",
+    "question_type": "explain",
+    "question": "httpx.Client 的 timeout 配置有几种粒度？分别控制什么阶段？",
+    "target_symbols": [
+      "Timeout",
+      "DEFAULT_TIMEOUT_CONFIG",
+      "Limits"
+    ],
+    "expected_answer_summary": "Timeout (httpx/_config.py:72) 支持四种粒度：connect（建立 TCP 连接）、read（读取响应数据）、write（发送请求数据）、pool（从连接池获取连接）。DEFAULT_TIMEOUT_CONFIG (_client.py:107) 默认 5 秒。Limits (_config.py:159) 控制连接池行为（max_connections、max_keepalive_connections）。",
+    "expected_evidence_files": [
+      "httpx/_config.py",
+      "httpx/_client.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_config.py",
+        "symbol": "class Timeout",
+        "line_hint": 72
+      },
+      {
+        "file": "httpx/_config.py",
+        "symbol": "class Limits",
+        "line_hint": 159
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "DEFAULT_TIMEOUT_CONFIG",
+        "line_hint": 107
+      }
+    ],
+    "verification_method": "grep -n 'class Timeout\\|class Limits\\|DEFAULT_TIMEOUT' httpx/_config.py httpx/_client.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_fu_01a",
+    "question_type": "explain",
+    "question": "httpx.Client 的 request() 方法和 get()/post() 等快捷方法之间是什么关系？",
+    "target_symbols": [
+      "Client.request",
+      "Client.get",
+      "Client.post",
+      "HTTPConnection.request"
+    ],
+    "expected_answer_summary": "Client.get() (1025)、Client.post() 等快捷方法是 request() (778) 的封装，预设 http_method 参数。request() 调用 build_request() (340) 构造 Request 对象 → send() (869) 发送。BaseClient (188) 提供 HTTPConnection 级别的低级方法。",
+    "expected_evidence_files": [
+      "httpx/_client.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_client.py",
+        "symbol": "Client.request",
+        "line_hint": 778
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "Client.get",
+        "line_hint": 1025
+      }
+    ],
+    "verification_method": "grep -n 'def request\\|def get\\|def post\\|def put\\|def delete' httpx/_client.py | head -10",
+    "needs_verification": false,
+    "follow_up_group": "fu_httpx_client",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_fu_01b",
+    "question_type": "explain",
+    "question": "在 httpx 中，headers 参数传递给 Client 构造函数和传递给 request() 方法有什么区别？",
+    "target_symbols": [
+      "Client.headers",
+      "build_request",
+      "Headers"
+    ],
+    "expected_answer_summary": "Client 构造函数的 headers 是默认请求头，应用于所有通过该 Client 发出的请求。request() 的 headers 是单次请求头。build_request() (340) 中两者通过 Headers 类 (_models.py:139) 合并，单次请求头优先级更高（覆盖默认值）。Headers 类支持大小写不敏感的键和多值。",
+    "expected_evidence_files": [
+      "httpx/_client.py",
+      "httpx/_models.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_client.py",
+        "symbol": "build_request",
+        "line_hint": 340
+      },
+      {
+        "file": "httpx/_models.py",
+        "symbol": "class Headers",
+        "line_hint": 139
+      }
+    ],
+    "verification_method": "sed -n '340,400p' httpx/_client.py",
+    "needs_verification": false,
+    "follow_up_group": "fu_httpx_client",
+    "follow_up_order": 1
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_fu_03a",
+    "question_type": "explain",
+    "question": "httpx 的 Proxy 类支持哪些代理协议？如何通过 Client 配置代理？",
+    "target_symbols": [
+      "Proxy",
+      "mount",
+      "HTTPTransport"
+    ],
+    "expected_answer_summary": "Proxy (httpx/_config.py:201) 支持 HTTP 和 HTTPS 代理。通过 Client(mount={...}) 将特定 URL 模式路由到代理 transport。底层通过 HTTPTransport 的 proxy 参数设置代理 URL。支持 SOCKS 代理（需要额外安装 socksio 包）。",
+    "expected_evidence_files": [
+      "httpx/_config.py",
+      "httpx/_client.py",
+      "httpx/_transports/default.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_config.py",
+        "symbol": "class Proxy",
+        "line_hint": 201
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "_init_transport",
+        "line_hint": 718
+      }
+    ],
+    "verification_method": "grep -n 'class Proxy' httpx/_config.py && grep -n 'mount' httpx/_client.py | head -10",
+    "needs_verification": false,
+    "follow_up_group": "fu_httpx_proxy",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_fu_03b",
+    "question_type": "explain",
+    "question": "httpx 的 mount 机制如何实现不同 URL scheme 路由到不同的 transport？",
+    "target_symbols": [
+      "mount",
+      "_transport_for_url",
+      "URL",
+      "BaseTransport"
+    ],
+    "expected_answer_summary": "Client 构造函数接收 mount 字典，key 是 URL 模式字符串（如 'http://'、'all://'），value 是 transport 实例。_transport_for_url() (_client.py:760) 遍历 mount 条目，使用 URL 前缀匹配找到对应的 transport。若未匹配到，使用默认 HTTPTransport。AsyncClient 同样支持 mount。",
+    "expected_evidence_files": [
+      "httpx/_client.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_client.py",
+        "symbol": "_transport_for_url",
+        "line_hint": 760
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "_init_transport",
+        "line_hint": 718
+      }
+    ],
+    "verification_method": "sed -n '760,810p' httpx/_client.py",
+    "needs_verification": false,
+    "follow_up_group": "fu_httpx_proxy",
+    "follow_up_order": 1
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_fu_02a",
+    "question_type": "trace",
+    "question": "追踪 httpx 的流式响应处理：当使用 stream 模式时，Response.iter_bytes() 如何从底层 socket 逐块读取数据？",
+    "target_symbols": [
+      "stream",
+      "Response.iter_bytes",
+      "ResponseStream",
+      "ByteStream"
+    ],
+    "expected_answer_summary": "Client.stream() (_client.py:1150) 发送请求并返回 Response。Response.iter_bytes() 通过 ResponseStream (default.py:121) 从底层 socket 逐块 yield 数据。ByteStream 封装了 HTTP 响应体的迭代读取逻辑，支持 chunk_size 控制和超时。",
+    "expected_evidence_files": [
+      "httpx/_client.py",
+      "httpx/_transports/default.py",
+      "httpx/_models.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_client.py",
+        "symbol": "Client.stream",
+        "line_hint": 1150
+      },
+      {
+        "file": "httpx/_transports/default.py",
+        "symbol": "class ResponseStream",
+        "line_hint": 121
+      }
+    ],
+    "verification_method": "grep -n 'def stream\\|def iter_bytes\\|class ResponseStream\\|class ByteStream' httpx/_client.py httpx/_models.py httpx/_transports/default.py",
+    "needs_verification": false,
+    "follow_up_group": "fu_httpx_stream",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_fu_02b",
+    "question_type": "trace",
+    "question": "流式请求的响应体如果没有被消费完就关闭 Client，会发生什么？httpx 如何处理这种情况？",
+    "target_symbols": [
+      "ResponseStream",
+      "StreamError",
+      "StreamConsumed",
+      "StreamClosed"
+    ],
+    "expected_answer_summary": "未消费完响应体就关闭 Client 时：ResponseStream 检测到未读取的数据 → 抛出 StreamError (httpx/_exceptions.py:297) 子类异常。StreamConsumed (309) 在重复读取已消费流时抛出，StreamClosed (327) 在流关闭后仍尝试读取时抛出。ResponseNotRead (340) 表示响应体未读取。",
+    "expected_evidence_files": [
+      "httpx/_exceptions.py",
+      "httpx/_transports/default.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_exceptions.py",
+        "symbol": "class StreamError",
+        "line_hint": 297
+      },
+      {
+        "file": "httpx/_exceptions.py",
+        "symbol": "class StreamConsumed",
+        "line_hint": 309
+      },
+      {
+        "file": "httpx/_exceptions.py",
+        "symbol": "class StreamClosed",
+        "line_hint": 327
+      }
+    ],
+    "verification_method": "grep -n 'class Stream' httpx/_exceptions.py",
+    "needs_verification": false,
+    "follow_up_group": "fu_httpx_stream",
+    "follow_up_order": 1
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_trace_01",
+    "question_type": "trace",
+    "question": "追踪 httpx.get() 快捷函数的完整调用链：从用户调用 httpx.get(url) 到 HTTP 响应返回的全流程。",
+    "target_symbols": [
+      "get",
+      "Client.request",
+      "Client.send",
+      "_send_single_request",
+      "HTTPTransport"
+    ],
+    "expected_answer_summary": "httpx.get() (_api.py:174) → Client.request() (_client.py:778) → Client.send() (869) → build_request() (340) 构造 Request 对象 → _send_handling_auth() (930) 检测认证 → _send_handling_redirects() (964) 处理重定向 → _send_single_request() (1001) 调用 transport → HTTPTransport.handle_request() (default.py:135) 执行网络 I/O → Response 返回。",
+    "expected_evidence_files": [
+      "httpx/_api.py",
+      "httpx/_client.py",
+      "httpx/_transports/default.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_api.py",
+        "symbol": "def get",
+        "line_hint": 174
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "Client.request",
+        "line_hint": 778
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "Client.send",
+        "line_hint": 869
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "_send_single_request",
+        "line_hint": 1001
+      },
+      {
+        "file": "httpx/_transports/default.py",
+        "symbol": "class HTTPTransport",
+        "line_hint": 135
+      }
+    ],
+    "verification_method": "grep -n 'def get\\|def request\\|def send' httpx/_api.py httpx/_client.py | head -20",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_trace_02",
+    "question_type": "trace",
+    "question": "追踪 httpx 如何处理 HTTP 重定向：当服务器返回 302 时，_send_handling_redirects() 如何决定是否跟随重定向？",
+    "target_symbols": [
+      "_send_handling_redirects",
+      "DEFAULT_MAX_REDIRECTS",
+      "Response.next_request"
+    ],
+    "expected_answer_summary": "_send_handling_redirects() (_client.py:964) 检查 allow_redirects 参数和 Response.next_request (由 RedirectBody 中间件设置)。循环最多执行 DEFAULT_MAX_REDIRECTS (90) 次。每次通过 build_request() 构造新的 Request，调用 _send_single_request() 发送，累积到 redirect_history。Cookie 和认证信息在重定向链中传递。",
+    "expected_evidence_files": [
+      "httpx/_client.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_client.py",
+        "symbol": "_send_handling_redirects",
+        "line_hint": 964
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "DEFAULT_MAX_REDIRECTS",
+        "line_hint": 90
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "_send_single_request",
+        "line_hint": 1001
+      }
+    ],
+    "verification_method": "sed -n '964,1000p' httpx/_client.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_trace_03",
+    "question_type": "trace",
+    "question": "追踪 httpx 请求的 URL 合并流程：Client._merge_url() 如何将 base_url 和请求路径合并为最终 URL？",
+    "target_symbols": [
+      "Client._merge_url",
+      "URL",
+      "URL.copy_with",
+      "_enforce_trailing_slash"
+    ],
+    "expected_answer_summary": "Client._merge_url() (_client.py:391) 接收相对或绝对 URL：1) 若已是绝对 URL (URL.is_absolute_url)，直接返回；2) 若未设置 base_url，返回原始 URL；3) 调用 _enforce_trailing_slash() (234) 确保 base_url 尾部斜杠规则一致；4) 使用 URL.copy_with() (_urls.py:327) 合并路径和查询参数。",
+    "expected_evidence_files": [
+      "httpx/_client.py",
+      "httpx/_urls.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_client.py",
+        "symbol": "_merge_url",
+        "line_hint": 391
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "_enforce_trailing_slash",
+        "line_hint": 234
+      },
+      {
+        "file": "httpx/_urls.py",
+        "symbol": "URL.copy_with",
+        "line_hint": 327
+      }
+    ],
+    "verification_method": "grep -n '_merge_url\\|_enforce_trailing_slash' httpx/_client.py && grep -n 'def copy_with' httpx/_urls.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_impact_01",
+    "question_type": "impact",
+    "question": "如果 httpx.Client 的 transport 参数被移除或不可用，会影响哪些功能？如何确保向后兼容？",
+    "target_symbols": [
+      "Client",
+      "BaseClient",
+      "HTTPTransport",
+      "_init_transport",
+      "_transport_for_url"
+    ],
+    "expected_answer_summary": "transport 是 httpx 网络层核心。移除后影响：Client.send() 无法执行实际 HTTP 请求、mount 机制失效（无法按 URL scheme 路由到不同 transport）、代理功能失效、mock transport 测试支持断裂。_init_transport() (_client.py:718) 和 _transport_for_url() (760) 负责 transport 的创建和路由。",
+    "expected_evidence_files": [
+      "httpx/_client.py",
+      "httpx/_transports/default.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_client.py",
+        "symbol": "_init_transport",
+        "line_hint": 718
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "_transport_for_url",
+        "line_hint": 760
+      },
+      {
+        "file": "httpx/_config.py",
+        "symbol": "class Proxy",
+        "line_hint": 201
+      }
+    ],
+    "verification_method": "grep -rn 'transport\\|mount' httpx/_client.py | head -30",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_impact_02",
+    "question_type": "impact",
+    "question": "如果 httpx.Response 的 json() 方法抛出 DecodingError，上游调用者如何处理？有哪些地方依赖此方法返回 dict？",
+    "target_symbols": [
+      "Response.json",
+      "DecodingError",
+      "Response.text",
+      "Response.read"
+    ],
+    "expected_answer_summary": "Response.json() (_models.py:515 附近) 在 JSON 解析失败时抛出 DecodingError (_exceptions.py:243)。所有使用 httpx 的代码中，调用 resp.json() 的地方需要处理此异常。影响 API 客户端、测试代码、中间件等的 JSON 响应处理。建议使用 try/except 或 resp.text + 手动 json.loads。",
+    "expected_evidence_files": [
+      "httpx/_models.py",
+      "httpx/_exceptions.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_models.py",
+        "symbol": "class Response",
+        "line_hint": 515
+      },
+      {
+        "file": "httpx/_exceptions.py",
+        "symbol": "class DecodingError",
+        "line_hint": 243
+      }
+    ],
+    "verification_method": "grep -rn '\\.json()' httpx/ --include='*.py' | head -20",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_impact_03",
+    "question_type": "impact",
+    "question": "如果 httpx 的异步客户端 AsyncClient 的接口与同步 Client 不一致，会对混合代码库造成什么影响？",
+    "target_symbols": [
+      "AsyncClient",
+      "Client",
+      "BaseClient"
+    ],
+    "expected_answer_summary": "AsyncClient (_client.py:1187) 与 Client (594) 都继承 BaseClient (188)，共享 build_request()、_merge_url()、_enforce_trailing_slash() 等核心逻辑。差异在于异步方法 (async/await)、异步 transport (AsyncHTTPTransport)、异步认证处理。如果接口不一致，会导致：类型检查工具报错、同步代码改为异步时需大量重构、文档和测试混乱。",
+    "expected_evidence_files": [
+      "httpx/_client.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_client.py",
+        "symbol": "class Client",
+        "line_hint": 594
+      },
+      {
+        "file": "httpx/_client.py",
+        "symbol": "class AsyncClient",
+        "line_hint": 1187
+      }
+    ],
+    "verification_method": "grep -n 'class.*Client\\|class Async' httpx/_client.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_grep_01",
+    "question_type": "grep",
+    "question": "在 httpx 代码库中搜索所有实现 __enter__ 和 __exit__ 的类，httpx 的上下文管理器模式在哪里定义？",
+    "target_symbols": [
+      "__enter__",
+      "__exit__",
+      "Client",
+      "AsyncClient",
+      "stream"
+    ],
+    "expected_answer_summary": "Client.__enter__/__exit__ 在 httpx/_client.py 中定义，支持 with httpx.Client() as client: 语法。AsyncClient 同样支持 async with。此外，Response 流式响应 (stream) 也支持上下文管理器。搜索结果显示主要上下文管理器集中在 _client.py。",
+    "expected_evidence_files": [
+      "httpx/_client.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_client.py",
+        "symbol": "class Client",
+        "line_hint": 594
+      }
+    ],
+    "verification_method": "grep -rn '__enter__\\|__exit__\\|__aenter__\\|__aexit__' httpx/ --include='*.py' | grep -v test | grep -v __pycache__",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_grep_02",
+    "question_type": "grep",
+    "question": "在 httpx 代码库中搜索所有 raise HTTPStatusError 的位置，了解哪些场景会抛出此异常。",
+    "target_symbols": [
+      "HTTPStatusError",
+      "raise",
+      "status_code",
+      "raise_for_status"
+    ],
+    "expected_answer_summary": "HTTPStatusError 在 _exceptions.py:258 定义。raise_for_status() 方法在 _models.py Response 类中，当 response.is_error 为 True 时抛出。搜索 httpx 自身代码库（排除测试）中 raise HTTPStatusError 的位置，主要出现在 _models.py 的 Response.raise_for_status()。",
+    "expected_evidence_files": [
+      "httpx/_models.py",
+      "httpx/_exceptions.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_models.py",
+        "symbol": "Response.raise_for_status"
+      },
+      {
+        "file": "httpx/_exceptions.py",
+        "symbol": "class HTTPStatusError",
+        "line_hint": 258
+      }
+    ],
+    "verification_method": "grep -rn 'raise HTTPStatusError\\|HTTPStatusError(' httpx/ --include='*.py' | grep -v test | grep -v __pycache__",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "httpx",
+    "repo_url": "https://github.com/encode/httpx",
+    "tag": "0.28.1",
+    "commit_sha": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+    "id": "ext_httpx_grep_03",
+    "question_type": "grep",
+    "question": "在 httpx 代码库中搜索 DEFAULT_MAX_REDIRECTS 的所有引用，了解最大重定向数的配置和使用。",
+    "target_symbols": [
+      "DEFAULT_MAX_REDIRECTS",
+      "max_redirects",
+      "TooManyRedirects"
+    ],
+    "expected_answer_summary": "DEFAULT_MAX_REDIRECTS (_client.py:90) 默认值 20，在 _send_handling_redirects() 中使用。当重定向次数超过此限制，抛出 TooManyRedirects 异常 (_exceptions.py:249)。用户可通过 Client(max_redirects=N) 自定义。",
+    "expected_evidence_files": [
+      "httpx/_client.py",
+      "httpx/_exceptions.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "httpx/_client.py",
+        "symbol": "DEFAULT_MAX_REDIRECTS",
+        "line_hint": 90
+      },
+      {
+        "file": "httpx/_exceptions.py",
+        "symbol": "class TooManyRedirects",
+        "line_hint": 249
+      }
+    ],
+    "verification_method": "grep -rn 'DEFAULT_MAX_REDIRECTS\\|max_redirects\\|TooManyRedirects' httpx/ --include='*.py' | grep -v __pycache__",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_locate_01",
+    "question_type": "locate",
+    "question": "Typer 类在 typer 项目的哪个文件中定义？它的行号大约是多少？",
+    "target_symbols": [
+      "Typer"
+    ],
+    "expected_answer_summary": "Typer 类定义在 typer/main.py 第 119 行，是 typer 的核心类，作为 CLI 应用的主入口，负责注册命令、回调、子 Typer 等。",
+    "expected_evidence_files": [
+      "typer/main.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "class Typer",
+        "line_hint": 119
+      }
+    ],
+    "verification_method": "grep -n 'class Typer' typer/main.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_locate_02",
+    "question_type": "locate",
+    "question": "click.Option 和 click.Argument 对应的 typer 装饰器定义在哪个文件中？",
+    "target_symbols": [
+      "Option",
+      "Argument"
+    ],
+    "expected_answer_summary": "typer 的 Option 和 Argument 装饰器都定义在 typer/params.py。Option (145) 和 Argument (1117) 都是函数，返回对应 Click 类型的参数配置。OptionInfo (models.py:388) 和 ArgumentInfo (models.py:516) 是参数配置的数据类。",
+    "expected_evidence_files": [
+      "typer/params.py",
+      "typer/models.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/params.py",
+        "symbol": "def Option",
+        "line_hint": 145
+      },
+      {
+        "file": "typer/params.py",
+        "symbol": "def Argument",
+        "line_hint": 1117
+      },
+      {
+        "file": "typer/models.py",
+        "symbol": "class OptionInfo",
+        "line_hint": 388
+      },
+      {
+        "file": "typer/models.py",
+        "symbol": "class ArgumentInfo",
+        "line_hint": 516
+      }
+    ],
+    "verification_method": "grep -n 'def Option\\|def Argument' typer/params.py && grep -n 'class OptionInfo\\|class ArgumentInfo' typer/models.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_locate_03",
+    "question_type": "locate",
+    "question": "typer 如何调用 click 的底层？TyperCommand 和 TyperGroup 类在哪个文件中？",
+    "target_symbols": [
+      "TyperCommand",
+      "TyperGroup",
+      "_click"
+    ],
+    "expected_answer_summary": "TyperCommand (core.py:909) 和 TyperGroup (core.py:997) 定义在 typer/core.py 中。TyperCommand 继承 click.core.Command (909)，TyperGroup 继承 click.Command (997)。Typer 在 __call__() 时通过 get_command()/get_group() 将 typer 的高层模型转换为 click 的底层 Command/Group 对象。",
+    "expected_evidence_files": [
+      "typer/core.py",
+      "typer/main.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/core.py",
+        "symbol": "class TyperCommand",
+        "line_hint": 909
+      },
+      {
+        "file": "typer/core.py",
+        "symbol": "class TyperGroup",
+        "line_hint": 997
+      },
+      {
+        "file": "typer/core.py",
+        "symbol": "def _main",
+        "line_hint": 157
+      }
+    ],
+    "verification_method": "grep -n 'class TyperCommand\\|class TyperGroup\\|import click' typer/core.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_explain_01",
+    "question_type": "explain",
+    "question": "typer.Typer 的 command() 和 add_typer() 方法分别用于什么场景？它们的实现有什么区别？",
+    "target_symbols": [
+      "Typer.command",
+      "Typer.add_typer",
+      "CommandInfo",
+      "TyperInfo"
+    ],
+    "expected_answer_summary": "Typer.command() (main.py:753) 注册单条 CLI 命令，创建 CommandInfo (models.py:200) 对象并注册到 _registered_commands 列表中。Typer.add_typer() (main.py:915) 将另一个 Typer 实例注册为子命令组，创建 TyperInfo (models.py:235) 对象注册到 _registered_groups 列表。区别：command 注册叶节点命令，add_typer 注册子树。",
+    "expected_evidence_files": [
+      "typer/main.py",
+      "typer/models.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "Typer.command",
+        "line_hint": 753
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "Typer.add_typer",
+        "line_hint": 915
+      },
+      {
+        "file": "typer/models.py",
+        "symbol": "class CommandInfo",
+        "line_hint": 200
+      },
+      {
+        "file": "typer/models.py",
+        "symbol": "class TyperInfo",
+        "line_hint": 235
+      }
+    ],
+    "verification_method": "grep -n 'def command\\|def add_typer' typer/main.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_explain_02",
+    "question_type": "explain",
+    "question": "typer 的 _main() 函数是如何工作的？它在 typer 与 click 之间扮演什么角色？",
+    "target_symbols": [
+      "_main",
+      "Typer.__call__",
+      "get_command",
+      "get_group"
+    ],
+    "expected_answer_summary": "_main() (core.py:157) 是 typer 的核心桥梁函数。当 Typer 实例被调用时 (main.py:1137 __call__ → 1133)，解析参数类型注解确定 click 参数类型 → 创建 TyperCommand/TyperGroup → 调用 _main() 形成最终的 click 命令对象。_main() 处理回调、参数、子命令的注册和组合。",
+    "expected_evidence_files": [
+      "typer/core.py",
+      "typer/main.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/core.py",
+        "symbol": "def _main",
+        "line_hint": 157
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "Typer.__call__",
+        "line_hint": 1133
+      }
+    ],
+    "verification_method": "sed -n '157,250p' typer/core.py | head -30",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_explain_03",
+    "question_type": "explain",
+    "question": "typer 如何利用 Python 类型注解自动推断 click 参数类型？get_click_type() 和 get_click_param() 的作用是什么？",
+    "target_symbols": [
+      "get_click_type",
+      "get_click_param",
+      "determine_type_convertor"
+    ],
+    "expected_answer_summary": "get_click_type() (main.py:1530) 将 Python 类型 (str, int, bool, List[str], Optional[str] 等) 映射为 click 的 ParamType。get_click_param() (main.py:1632) 基于函数参数的类型注解和 OptionInfo/ArgumentInfo 配置，创建完整的 click.Option/click.Argument。determine_type_convertor() (main.py:1437) 处理 Optional/Union 等复杂泛型。",
+    "expected_evidence_files": [
+      "typer/main.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "get_click_type",
+        "line_hint": 1530
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "get_click_param",
+        "line_hint": 1632
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "determine_type_convertor",
+        "line_hint": 1437
+      }
+    ],
+    "verification_method": "grep -n 'def get_click_type\\|def get_click_param\\|def determine_type_convertor' typer/main.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_fu_01a",
+    "question_type": "explain",
+    "question": "typer.Typer 的 callback() 方法有什么作用？它和 command() 的区别是什么？",
+    "target_symbols": [
+      "Typer.callback",
+      "Typer.command",
+      "CallbackParam"
+    ],
+    "expected_answer_summary": "Typer.callback() (main.py:549) 注册 CLI 的回调函数，在子命令执行前运行，用于初始化、全局参数处理等。Typer.command() (753) 注册具体子命令。CallbackParam (models.py:161) 专用于 callback 的参数。callback 和 command 互斥：一个 Typer 示例要么是纯命令（command），要么是命令组（callback + 子 command）。",
+    "expected_evidence_files": [
+      "typer/main.py",
+      "typer/models.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "Typer.callback",
+        "line_hint": 549
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "Typer.command",
+        "line_hint": 753
+      },
+      {
+        "file": "typer/models.py",
+        "symbol": "class CallbackParam",
+        "line_hint": 161
+      }
+    ],
+    "verification_method": "grep -n 'def callback\\|def command' typer/main.py && grep -n 'class CallbackParam' typer/models.py",
+    "needs_verification": false,
+    "follow_up_group": "fu_typer_cb",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_fu_01b",
+    "question_type": "explain",
+    "question": "在 typer 中，callback 的参数如何传递给子命令？子命令如何访问 callback 的上下文？",
+    "target_symbols": [
+      "Context",
+      "CallbackParam",
+      "DefaultPlaceholder"
+    ],
+    "expected_answer_summary": "Callback 参数通过 click 的 Context 机制传递。_main() (core.py:157) 创建 Context 对象，callback 的返回值存储在 Context 中。子命令通过 click.Context.obj 或参数依赖注入访问。DefaultPlaceholder (models.py:170) 和 Default (190) 用于占位默认值。",
+    "expected_evidence_files": [
+      "typer/core.py",
+      "typer/models.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/core.py",
+        "symbol": "def _main",
+        "line_hint": 157
+      },
+      {
+        "file": "typer/models.py",
+        "symbol": "class DefaultPlaceholder",
+        "line_hint": 170
+      }
+    ],
+    "verification_method": "grep -n 'Context\\|callback\\|DefaultPlaceholder\\|Default\b' typer/core.py | head -20",
+    "needs_verification": false,
+    "follow_up_group": "fu_typer_cb",
+    "follow_up_order": 1
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_fu_02b",
+    "question_type": "explain",
+    "question": "typer 的 rich_markup_mode 参数支持哪些模式？分别如何影响 help 文本的渲染？",
+    "target_symbols": [
+      "rich_markup_mode",
+      "Typer",
+      "OptionInfo"
+    ],
+    "expected_answer_summary": "rich_markup_mode 在 Typer() 和 Option()/Argument() 中可用。支持 'markdown'、'rich'、None 三种模式。'rich' 使用 Rich 的标记语法（[bold]等），'markdown' 支持 Markdown 格式化，None 不处理标记。OptionInfo (models.py:388) 存储 rich_help_panel 和 markup 配置。",
+    "expected_evidence_files": [
+      "typer/main.py",
+      "typer/models.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "class Typer.__init__",
+        "line_hint": 119
+      },
+      {
+        "file": "typer/models.py",
+        "symbol": "class OptionInfo",
+        "line_hint": 388
+      }
+    ],
+    "verification_method": "grep -n 'rich_markup_mode' typer/main.py typer/models.py typer/core.py | head -10",
+    "needs_verification": false,
+    "follow_up_group": "fu_typer_rich",
+    "follow_up_order": 1
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_fu_03a",
+    "question_type": "explain",
+    "question": "typer.Argument 和 typer.Option 在处理默认值上有什么区别？如果都不传会怎样？",
+    "target_symbols": [
+      "Argument",
+      "Option",
+      "ArgumentInfo",
+      "OptionInfo"
+    ],
+    "expected_answer_summary": "Argument (params.py:1117) 是位置参数，默认 required=True（无默认值时），有默认值时自动变为可选。Option (params.py:145) 是命名参数 (--flag)，默认 required=False，可通过 ... (Ellipsis) 强制必填。ArgumentInfo (models.py:516) 和 OptionInfo (models.py:388) 控制各自的默认值行为。",
+    "expected_evidence_files": [
+      "typer/params.py",
+      "typer/models.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/params.py",
+        "symbol": "def Option",
+        "line_hint": 145
+      },
+      {
+        "file": "typer/params.py",
+        "symbol": "def Argument",
+        "line_hint": 1117
+      }
+    ],
+    "verification_method": "grep -n 'def Option\\|def Argument' typer/params.py && grep -n 'default\\|required' typer/models.py | head -20",
+    "needs_verification": false,
+    "follow_up_group": "fu_typer_arg",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_fu_03b",
+    "question_type": "explain",
+    "question": "typer 如何支持 List[str]、Tuple[str, int] 等复合类型作为 CLI 参数？",
+    "target_symbols": [
+      "get_click_type",
+      "List",
+      "Tuple",
+      "determine_type_convertor"
+    ],
+    "expected_answer_summary": "get_click_type() (main.py:1530) 处理 List[X] → click 的 multiple=True 或 nargs=-1；Tuple[X, Y] → click.Tuple 类型。determine_type_convertor() (main.py:1437) 解析泛型参数并递归处理嵌套类型。Option() 的 parser 参数也可用于自定义解析逻辑。",
+    "expected_evidence_files": [
+      "typer/main.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "def get_click_type",
+        "line_hint": 1530
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "def determine_type_convertor",
+        "line_hint": 1437
+      }
+    ],
+    "verification_method": "sed -n '1530,1630p' typer/main.py | head -40",
+    "needs_verification": false,
+    "follow_up_group": "fu_typer_arg",
+    "follow_up_order": 1
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_fu_02a",
+    "question_type": "trace",
+    "question": "追踪 typer 如何处理 Rich 库集成：当安装 Rich 后，typer 的帮助和错误输出有什么变化？",
+    "target_symbols": [
+      "HAS_RICH",
+      "RichHelpFormatter",
+      "TyperCommand.format_help"
+    ],
+    "expected_answer_summary": "HAS_RICH (main.py:54) 检测 rich 是否安装。安装后：TyperCommand.format_help() (core.py:982) 使用 Rich 的渲染功能（面板、颜色、标记）。错误消息也会使用 Rich 的格式化。未安装时降级为 click 原生 HelpFormatter (click.formatting.HelpFormatter)。secho 用于彩色输出。",
+    "expected_evidence_files": [
+      "typer/main.py",
+      "typer/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "HAS_RICH",
+        "line_hint": 54
+      },
+      {
+        "file": "typer/core.py",
+        "symbol": "TyperCommand.format_help",
+        "line_hint": 982
+      }
+    ],
+    "verification_method": "grep -n 'HAS_RICH\\|format_help\\|rich' typer/core.py typer/main.py | head -20",
+    "needs_verification": false,
+    "follow_up_group": "fu_typer_rich",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_trace_01",
+    "question_type": "trace",
+    "question": "追踪 typer 应用从启动到最终执行回调的完整调用链：当运行 python app.py foo --bar 时，typer 如何将其转换为 click 调用？",
+    "target_symbols": [
+      "Typer.__call__",
+      "get_command",
+      "TyperCommand.main",
+      "_main",
+      "get_group"
+    ],
+    "expected_answer_summary": "调用链：Typer()('foo --bar') → Typer.__call__() (main.py:1137) 注入 shell_complete → get_command() (main.py:1173) 或 get_group() (1163) 将高层 Typer 对象转换为 click Command/Group → click 的 Command.main() 解析参数 → _main() (core.py:157) 执行回调 → 类型转换 → 用户函数执行。",
+    "expected_evidence_files": [
+      "typer/main.py",
+      "typer/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "Typer.__call__",
+        "line_hint": 1133
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "def get_command",
+        "line_hint": 1173
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "def get_group",
+        "line_hint": 1163
+      },
+      {
+        "file": "typer/core.py",
+        "symbol": "def _main",
+        "line_hint": 157
+      },
+      {
+        "file": "typer/core.py",
+        "symbol": "TyperCommand.main",
+        "line_hint": 962
+      }
+    ],
+    "verification_method": "sed -n '1133,1175p' typer/main.py && grep -n 'def main\\|def invoke\\|def parse_args' typer/core.py | head -10",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_trace_02",
+    "question_type": "trace",
+    "question": "追踪 typer 的 Option 装饰器如何将一个 Python 函数参数转换为 click.Option：从 @app.command() 装饰的函数参数到最终 click.Option 对象。",
+    "target_symbols": [
+      "Option",
+      "OptionInfo",
+      "get_click_param",
+      "get_callback"
+    ],
+    "expected_answer_summary": "转换链：@app.command() (main.py:753) 注册回调函数 → get_callback() (main.py:1496) 提取函数 → get_click_param() (main.py:1632) 遍历参数 → 读取类型注解通过 get_click_type() (1530) 推断 click 类型 → 从 Option() 装饰器 (params.py:145) 获取 OptionInfo 配置 (models.py:388) → 创建 click.Option 对象 → Attrs 赋值。",
+    "expected_evidence_files": [
+      "typer/main.py",
+      "typer/params.py",
+      "typer/models.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "def get_click_param",
+        "line_hint": 1632
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "def get_click_type",
+        "line_hint": 1530
+      },
+      {
+        "file": "typer/params.py",
+        "symbol": "def Option",
+        "line_hint": 145
+      },
+      {
+        "file": "typer/models.py",
+        "symbol": "class OptionInfo",
+        "line_hint": 388
+      }
+    ],
+    "verification_method": "sed -n '1632,1700p' typer/main.py | head -30",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_trace_03",
+    "question_type": "trace",
+    "question": "追踪 typer 的 help 面板（rich_help_panel）功能如何实现：从 Option 指定 rich_help_panel 到 CLI 帮助输出。",
+    "target_symbols": [
+      "OptionInfo",
+      "rich_help_panel",
+      "TyperCommand.format_options",
+      "HAS_RICH"
+    ],
+    "expected_answer_summary": "OptionInfo (models.py:388) 的 rich_help_panel 字段用于分组帮助信息。TyperCommand.format_options() (core.py:947) 按 rich_help_panel 值对参数分组，每组建一个单独的 optgroup。若 HAS_RICH (main.py:54) 为 True，使用 Rich 的 Panel 渲染；否则降级为纯文本输出。",
+    "expected_evidence_files": [
+      "typer/core.py",
+      "typer/models.py",
+      "typer/main.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/core.py",
+        "symbol": "TyperCommand.format_options",
+        "line_hint": 947
+      },
+      {
+        "file": "typer/models.py",
+        "symbol": "class OptionInfo",
+        "line_hint": 388
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "HAS_RICH",
+        "line_hint": 54
+      }
+    ],
+    "verification_method": "grep -n 'rich_help_panel\\|HAS_RICH' typer/core.py typer/models.py typer/main.py | head -15 && sed -n '947,980p' typer/core.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_impact_01",
+    "question_type": "impact",
+    "question": "如果 typer 不再依赖 click（即移除 click 依赖），需要重写哪些模块？影响范围有多大？",
+    "target_symbols": [
+      "TyperCommand",
+      "TyperGroup",
+      "_click",
+      "get_click_type",
+      "get_click_param"
+    ],
+    "expected_answer_summary": "影响范围极广——typer 本质是 click 的类型安全封装层。核心依赖集中在：core.py 的 TyperCommand(click.Command) (909) 和 TyperGroup(click.Command) (997)、main.py 的 get_click_type()/get_click_param()/get_command()/get_group()、params.py 的 Option()/Argument() 返回 click 类型。移除 click 等于全部重写。",
+    "expected_evidence_files": [
+      "typer/core.py",
+      "typer/main.py",
+      "typer/params.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/core.py",
+        "symbol": "class TyperCommand",
+        "line_hint": 909
+      },
+      {
+        "file": "typer/core.py",
+        "symbol": "class TyperGroup",
+        "line_hint": 997
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "def get_click_type",
+        "line_hint": 1530
+      }
+    ],
+    "verification_method": "grep -rn 'import click\\|from click\\|click\\.' typer/ --include='*.py' | grep -v test | grep -v __pycache__ | wc -l && grep -rn 'import click\\|from click' typer/ --include='*.py' | grep -v test | head -10",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_impact_02",
+    "question_type": "impact",
+    "question": "如果 typer 的 get_command() 函数的行为被修改（例如不支持子 Typer），哪些 CLI 应用模式会受影响？",
+    "target_symbols": [
+      "get_command",
+      "get_group",
+      "Typer.add_typer",
+      "Typer.__call__"
+    ],
+    "expected_answer_summary": "get_command() (main.py:1173) 是 typer → click 转换的关键函数。修改它会影响：add_typer() (915) 注册的子 Typer 无法正常工作、嵌套命令组断裂、帮助输出中不显示子命令。所有使用子命令组的 CLI 应用（如 git style）都会受影响。get_group() (1163) 也依赖类似逻辑。",
+    "expected_evidence_files": [
+      "typer/main.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "def get_command",
+        "line_hint": 1173
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "def get_group",
+        "line_hint": 1163
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "Typer.add_typer",
+        "line_hint": 915
+      }
+    ],
+    "verification_method": "grep -rn 'get_command\\|get_group' typer/ --include='*.py' | grep -v test | grep -v __pycache__",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_impact_03",
+    "question_type": "impact",
+    "question": "如果 typer 的默认行为从 no_args_is_help=False 改为 True，会对现有 typer 应用产生什么影响？",
+    "target_symbols": [
+      "Typer",
+      "no_args_is_help",
+      "TyperGroup",
+      "_main"
+    ],
+    "expected_answer_summary": "no_args_is_help 控制无参数时是否自动显示帮助。Typer.__init__() (main.py:119) 允许设置此参数。_main() (core.py:157) 将其传递给 click。若默认改为 True，所有不带命令的应用将打印帮助而非报错，可能改变 CI/脚本的行为（以前报错现在成功退出）。现有部署脚本可能意外卡住等待输入。",
+    "expected_evidence_files": [
+      "typer/main.py",
+      "typer/core.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "class Typer.__init__",
+        "line_hint": 119
+      },
+      {
+        "file": "typer/core.py",
+        "symbol": "def _main",
+        "line_hint": 157
+      }
+    ],
+    "verification_method": "grep -n 'no_args_is_help' typer/main.py typer/core.py",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_grep_01",
+    "question_type": "grep",
+    "question": "在 typer 代码库中搜索所有使用 Optional 或 Union 表示可选参数类型注解的位置。",
+    "target_symbols": [
+      "Optional",
+      "Union",
+      "determine_type_convertor"
+    ],
+    "expected_answer_summary": "typer 通过 determine_type_convertor() (main.py:1437) 解析 Optional[X] (等价于 Union[X, None])。使用 Optional 时，typer 自动将 click 参数设为 required=False，默认值为 None。搜索代码库中 Optional 和 Union 在 Python 类型注解中的使用集中于 main.py 的类型映射函数。",
+    "expected_evidence_files": [
+      "typer/main.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "determine_type_convertor",
+        "line_hint": 1437
+      }
+    ],
+    "verification_method": "grep -rn 'Optional\\[\\|Union\\[' typer/ --include='*.py' | grep -v test | grep -v __pycache__ | head -20",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_grep_02",
+    "question_type": "grep",
+    "question": "在 typer 代码库中搜索所有 launch() 调用，了解 typer 的 Web/桌面应用启动功能。",
+    "target_symbols": [
+      "launch",
+      "HAS_RICH"
+    ],
+    "expected_answer_summary": "typer.launch() (在 __init__.py 中导出) 使用 click.launch() 打开浏览器 URL。搜索 typer 源码中 launch 的使用：主要用于 completion.py (安装 shell 补全)、帮助中的 URL 打开。HAS_RICH (main.py:54) 检测 rich 库是否可用。",
+    "expected_evidence_files": [
+      "typer/main.py",
+      "typer/completion.py",
+      "typer/__init__.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/main.py",
+        "symbol": "HAS_RICH",
+        "line_hint": 54
+      }
+    ],
+    "verification_method": "grep -rn 'launch\\|webbrowser' typer/ --include='*.py' | grep -v test | grep -v __pycache__",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  },
+  {
+    "project": "typer",
+    "repo_url": "https://github.com/fastapi/typer",
+    "tag": "0.27.0",
+    "commit_sha": "60af34b60ab2650a74af32c6ce340c5cfbceb3d8",
+    "id": "ext_typer_grep_03",
+    "question_type": "grep",
+    "question": "在 typer 代码库中搜索 shell_complete 实现，了解 typer 的自动补全功能如何与 click 集成。",
+    "target_symbols": [
+      "shell_complete",
+      "completion",
+      "get_completion_inspect_parameters"
+    ],
+    "expected_answer_summary": "typer 的 shell 补全通过 completion 模块实现：get_completion_inspect_parameters() (completion.py:17) 获取参数信息 → install_callback() (30) 安装补全 → show_callback() (42) 展示补全 → shell_complete() (105) 执行匹配。在 Typer.__call__() (main.py:1133) 中注入 shell_complete 回调到 click.Command。",
+    "expected_evidence_files": [
+      "typer/completion.py",
+      "typer/main.py"
+    ],
+    "expected_evidence_locations": [
+      {
+        "file": "typer/completion.py",
+        "symbol": "get_completion_inspect_parameters",
+        "line_hint": 17
+      },
+      {
+        "file": "typer/completion.py",
+        "symbol": "shell_complete",
+        "line_hint": 105
+      },
+      {
+        "file": "typer/main.py",
+        "symbol": "Typer.__call__",
+        "line_hint": 1133
+      }
+    ],
+    "verification_method": "grep -rn 'shell_complete\\|completion' typer/ --include='*.py' | grep -v test | grep -v __pycache__ | head -20",
+    "needs_verification": false,
+    "follow_up_group": "",
+    "follow_up_order": 0
+  }
+]

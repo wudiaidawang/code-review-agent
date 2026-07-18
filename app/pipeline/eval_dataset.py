@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 
 # JSON 数据集路径（相对于项目根目录）
 _DATASET_JSON_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "tests", "__snapshots__", "eval_dataset_v2.json")
+_AGENT_EVAL_REAL_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "tests", "__snapshots__", "agent_eval_real.json")
+_AGENT_EVAL_EXTERNAL_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "tests", "__snapshots__", "agent_eval_external_v1.json")
 
 
 @dataclass
@@ -30,6 +32,25 @@ class InvestigationEvalSample:
     question: str
     ground_truth: dict  # question_type/expected_keywords/expected_tools
     mode: str = "investigation"
+
+
+@dataclass
+class RealInvestigationSample:
+    """一条真实评测样本（Investigation 模式，含扩展标注）。
+
+    与 InvestigationEvalSample 的区别：
+    - ground_truth 含扩展字段（expected_answer_keywords/expected_evidence_files/expected_answer_summary）
+    - 支持 follow_up_group/follow_up_order 用于续问链评测
+    """
+    id: str
+    question: str
+    ground_truth: dict
+    mode: str = "investigation_real"
+    follow_up_group: str = ""
+    follow_up_order: int = 0
+    project: str = ""
+    repo_url: str = ""
+    commit_sha: str = ""
 
 
 # ---- 样本数据集（手工标注，基于真实审查场景） ----
@@ -208,13 +229,70 @@ _SAMPLES: list[dict] = [
 ]
 
 
-def load_samples(mode: str = "review", dataset_version: str = "latest") -> list[EvalSample | InvestigationEvalSample]:
+def load_samples(mode: str = "review", dataset_version: str = "latest",
+                 project: str | None = None) -> list:
     """加载评测数据集。
 
     Args:
-        mode: "review" 只返回 Review 样本；"agent" 只返回 Agent 样本；"all" 返回全部
+        mode: "review" 只返回 Review 样本；"agent" 只返回合成 Agent 样本；
+              "agent_real" 加载真实调查问题；"all" 返回全部
         dataset_version: "v1" 强制使用 10 条手工样本；"latest" 优先 v2 JSON
     """
+    # agent_real: 从专用 JSON 加载（不经过 v2 合成样本路径）
+    if mode == "agent_real":
+        if os.path.exists(_AGENT_EVAL_REAL_PATH):
+            with open(_AGENT_EVAL_REAL_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return [
+                RealInvestigationSample(
+                    id=s["id"],
+                    question=s.get("question", ""),
+                    ground_truth=s.get("ground_truth", {}),
+                    follow_up_group=s.get("follow_up_group", ""),
+                    follow_up_order=s.get("follow_up_order", 0),
+                )
+                for s in data
+            ]
+        return []
+
+    if mode == "agent_external":
+        if not os.path.exists(_AGENT_EVAL_EXTERNAL_PATH):
+            return []
+        with open(_AGENT_EVAL_EXTERNAL_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if project:
+            data = [s for s in data if s.get("project") == project]
+        def _answer_keywords(sample: dict) -> list[str]:
+            explicit = sample.get("expected_answer_keywords") or sample.get("expected_keywords")
+            if explicit:
+                return explicit
+            # target_symbols 是调查目标全集，不必都在简明答案中逐字枚举。
+            # 无显式标注时，仅把已出现在人工核验摘要里的符号作为必答词。
+            summary = sample.get("expected_answer_summary", "").lower()
+            return [s for s in sample.get("target_symbols", []) if s.lower() in summary]
+
+        return [
+            RealInvestigationSample(
+                id=s["id"], question=s.get("question", ""),
+                ground_truth={
+                    "question_type": s.get("question_type", ""),
+                    # 外部候选以 expected_keywords 表示答案关键词；兼容两种
+                    # schema，并在缺省时回退到已由源码核验的 target_symbols。
+                    "expected_answer_keywords": _answer_keywords(s),
+                    "expected_evidence_files": s.get("expected_evidence_files", []),
+                    "expected_answer_summary": s.get("expected_answer_summary", ""),
+                    "expected_evidence_locations": s.get("expected_evidence_locations", []),
+                    "verification_method": s.get("verification_method", ""),
+                },
+                mode="investigation_external",
+                follow_up_group=s.get("follow_up_group", ""),
+                follow_up_order=s.get("follow_up_order", 0),
+                project=s.get("project", ""), repo_url=s.get("repo_url", ""),
+                commit_sha=s.get("commit_sha", ""),
+            )
+            for s in data
+        ]
+
     # v1: 强制使用手工样本
     if dataset_version == "v1":
         samples = [

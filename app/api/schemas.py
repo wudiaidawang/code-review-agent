@@ -24,7 +24,12 @@ class InvestigateResponse(BaseModel):
     evidence: list[dict]
     files_visited: list[str]
     findings: list[str]
+    plan: list[str]
     trace: list[str]
+    steps: list[dict] = []
+    investigation_id: str = ""
+    is_follow_up: bool = False
+    reused_evidence_refs: list[str] = []
     duration_ms: float
 
 

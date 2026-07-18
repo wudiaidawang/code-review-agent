@@ -12,6 +12,13 @@ import argparse
 import sys
 import os
 
+# Windows GBK 终端兼容：强制 stdout 用 UTF-8
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 
 def cmd_review(args):
     """执行一次代码审查并输出报告。"""
@@ -52,12 +59,40 @@ def cmd_investigate(args):
     from app.agent.investigator import InvestigationAgent
 
     repo_path = os.path.abspath(args.repo)
-    print(f"探索仓库: {repo_path}")
-    print(f"问题: {args.question}\n")
 
     agent = InvestigationAgent()
-    result = agent.investigate(repo_path, args.question)
 
+    if args.follow_up:
+        # 续问模式
+        inv_id = args.follow_up
+        print(f"续问调查: {inv_id}")
+        print(f"新问题: {args.question}\n")
+        result = agent.follow_up(repo_path, inv_id, args.question)
+    else:
+        print(f"探索仓库: {repo_path}")
+        print(f"问题: {args.question}\n")
+        result = agent.investigate(repo_path, args.question)
+
+    # 显示调查 ID
+    if result.investigation_id:
+        print(f"调查 ID: {result.investigation_id}")
+    if result.is_follow_up:
+        print(f"(续问) 复用证据: {len(result.reused_evidence_refs)} 条")
+        if result.reused_evidence_refs:
+            for ref in result.reused_evidence_refs[:5]:
+                print(f"  - {ref}")
+
+    if result.steps:
+        print(f"\n调查步骤 ({len(result.steps)}):")
+        for s in result.steps:
+            decision_mark = {"STOP": " [DONE]", "NO_EVIDENCE": " [NO-EVID]", "BUDGET": " [BUDGET]", "CONTINUE": " ->"}
+            mark = decision_mark.get(s.get("decision", ""), "")
+            budget_info = f" [{s.get('budget_reason', '')}]" if s.get("budget_reason") else ""
+            print(f"  {s['step']}. {s['tool']} [{s['status']}] {s['evidence_count']} evidence, "
+                  f"decision={s['decision']}{mark}{budget_info}")
+        print()
+    elif result.plan:
+        print(f"调查计划: {' -> '.join(result.plan)}\n")
     print(f"回答: {result.answer}\n")
     if result.files_visited:
         print(f"涉及文件 ({len(result.files_visited)}):")
@@ -106,6 +141,8 @@ def main():
     p_investigate = sub.add_parser("investigate", help="探索代码库")
     p_investigate.add_argument("repo", help="仓库路径")
     p_investigate.add_argument("question", help="关于代码库的问题（中文/英文）")
+    p_investigate.add_argument("--follow-up", default=None,
+                               help="续问模式：指定首次调查的 investigation_id")
 
     # ---- serve ----
     p_serve = sub.add_parser("serve", help="启动 API 服务")
