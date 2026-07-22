@@ -365,15 +365,8 @@ class InvestigationAgent:
                             if t.role in (TaskRole.ROOT, TaskRole.REQUIRED)]
             targets = targets_from_tasks(required_tasks, state.question_type)
             gap_tasks = _deterministic_gap_fill(targets, state)
-            for gt in gap_tasks[:3]:
-                gt.role = TaskRole.GAP
-                gt.subtree_depth = 0
-                state.register_task(gt)
-                _execute_task_subtree(gt, state,
-                                      max_depth=state.max_subtree_depth,
-                                      budget_phase="GAP",
-                                      tool_executor=tool_executor)
-            contract_met, reason = self._judge_contract(state)
+            contract_met, reason = self._run_prioritized_gap(
+                gap_tasks, state, tool_executor, contract_met)
             state.contract_met_after_gap = contract_met
             state.traces.append(
                 f"phase4_gap: gap_tasks={len(gap_tasks)} "
@@ -511,15 +504,8 @@ class InvestigationAgent:
                             if t.role in (TaskRole.ROOT, TaskRole.REQUIRED)]
             targets = targets_from_tasks(required_tasks, state.question_type)
             gap_tasks = _deterministic_gap_fill(targets, state)
-            for gt in gap_tasks[:3]:
-                gt.role = TaskRole.GAP
-                gt.subtree_depth = 0
-                state.register_task(gt)
-                _execute_task_subtree(gt, state,
-                                      max_depth=state.max_subtree_depth,
-                                      budget_phase="GAP",
-                                      tool_executor=tool_executor)
-            contract_met, _ = self._judge_contract(state)
+            contract_met, _ = self._run_prioritized_gap(
+                gap_tasks, state, tool_executor, contract_met)
 
         # 先形成可审阅草稿。LLM 不是再次接管流程，而是仅可提交一张
         # schema-validated Task（调查任务）；规则执行它，然后才重新合成。
@@ -570,6 +556,43 @@ class InvestigationAgent:
         result.reused_evidence_refs = matched_refs[:10]
         result.duration_ms = (time.perf_counter() - t0) * 1000
         return result
+
+    def _run_prioritized_gap(self, gap_tasks: list[InvestigationTask],
+                             state: ExplorationState, tool_executor: ToolExecutor,
+                             contract_met: bool) -> tuple[bool, str]:
+        """Execute only evidence-bearing GAP tasks, one at a time.
+
+        A non-trace question gets one best attempt. Trace keeps a second
+        directed-edge attempt only after the first created new evidence,
+        because a chain cannot close with a single verified edge.
+        """
+        limit = 2 if state.question_type == "trace" else 1
+        reason = "no gap task executed"
+        executed = 0
+        for gt in gap_tasks:
+            if executed >= limit or contract_met:
+                break
+            before = len(state.all_evidence)
+            gt.role = TaskRole.GAP
+            gt.subtree_depth = 0
+            state.register_task(gt)
+            _execute_task_subtree(gt, state,
+                                  max_depth=state.max_subtree_depth,
+                                  budget_phase="GAP",
+                                  tool_executor=tool_executor)
+            executed += 1
+            progressed = len(state.all_evidence) > before
+            contract_met, reason = self._judge_contract(state)
+            state.traces.append(
+                f"gap_priority: task={gt.id} progressed={progressed} met={contract_met}")
+            if contract_met:
+                break
+            # For ordinary questions do not spend the next slot after a
+            # successful-but-insufficient action; RETOOL can request the
+            # precise remaining task. Trace is the sole exception above.
+            if state.question_type != "trace" or not progressed:
+                break
+        return contract_met, reason
 
     # ── Phase 1: 任务分解 ──────────────────────────────────────────
 

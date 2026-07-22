@@ -57,7 +57,24 @@ GET  /review/{run_id}  # 查询审查结果
 POST /investigate      # 提交代码库调查
 GET  /runs             # 列出历史运行
 GET  /health           # 健康检查
+POST /jobs/review      # 异步提交审查，返回 job_id
+POST /jobs/investigate # 异步提交调查，返回 job_id
+GET  /jobs/{job_id}    # 查询异步任务状态/结果
+GET  /jobs/{job_id}/events # SSE 流式输出 queued/plan/result 事件
 ```
+
+异步 Job API（任务接口）最多接纳 50 个 queued/running（排队/运行中）任务，
+默认最多 8 个 worker（工作槽）同时执行，以保护本地文件系统和 LLM（大语言模型）上游。
+可通过 `API_MAX_ACTIVE_JOBS`（活跃任务上限）与 `API_MAX_WORKERS`（工作槽上限）调整。
+
+### 调查可靠性与预算控制
+
+`Investigation Agent（调查智能体）`以 Relation（关系）和 Slot（证据槽位）而不是固定工具链推进调查：
+
+- 结论只使用 verified evidence（已验证证据）；candidate evidence（候选证据）仅用于审计，不能关闭合同或进入答案。
+- `Completion Gate（完成闸门）`同时检查结构槽位和 Claim（待回答断言），避免“找到定义就提前完成”。
+- `GAP Scheduler（确定性补缺调度器）`按信息价值优先验证调用边，再考虑实现、定义与候选引用；普通问题逐条补缺并立即复判，调用链最多保留两条定向边补缺空间。
+- LLM（大语言模型）不接管调度；它仅能在证据不足时申请一次 schema-validated RETOOL Task（结构校验后的受控补充任务）。
 
 ## 架构概览
 
@@ -105,7 +122,7 @@ GET  /health           # 健康检查
 | V1.1 | Investigation Agent + CI/CD | ✅ |
 | V12–V13 | 结构化控制流 + Action Fingerprint + SearchTool 流式 Top-K | ✅ |
 | V22 | Task 驱动探查 + 全局优先队列调度 | ✅ |
-| V24–V27 | Relation 驱动 Planner + Slot 驱动调度 + Claim Gate 统一断言闸门 | ✅ |
+| V24–V27 | Relation 驱动 Planner + Slot 驱动调度 + Claim Gate 统一断言闸门 + 关系优先 GAP 补缺 | ✅ |
 
 ## 评测数据集 (700 条)
 
@@ -142,6 +159,7 @@ GET  /health           # 健康检查
 │   │   └── symbol_resolver.py    # 符号解析+节流
 │   ├── api/                # FastAPI 服务层
 │   │   ├── routes.py       # REST 端点
+│   │   ├── jobs.py         # 有界异步 Job + SSE 事件流
 │   │   └── schemas.py      # Pydantic 请求/响应模型
 │   ├── core/               # 核心基础设施
 │   │   ├── pipeline.py     # Pipeline 编排器

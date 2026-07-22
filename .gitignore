@@ -37,5 +37,8 @@ review_output.json
 # 本地依赖缓存
 .deps/
 
+# 评测结果与检查点（运行时生成，不适合上传）
+eval_report/results_agent/
+
 # 临时测试文件
 code.py

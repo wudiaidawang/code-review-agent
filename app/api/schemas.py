@@ -33,6 +33,13 @@ class InvestigateResponse(BaseModel):
     duration_ms: float
 
 
+class JobAcceptedResponse(BaseModel):
+    job_id: str
+    status: str
+    stream_url: str
+    result_url: str
+
+
 class ErrorDetail(BaseModel):
     code: str
     message: str

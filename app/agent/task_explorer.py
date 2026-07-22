@@ -1028,6 +1028,17 @@ def _deterministic_gap_fill(targets: dict[str, AnswerTarget],
     # exhausted GAP before a useful relation/slot could be verified. Claim
     # deficits proceed to the one schema-validated RETOOL task instead;
     # deterministic GAP remains structural-only.
+    # Direct graph evidence has materially higher value than re-reading an
+    # already located symbol or broad reference search.  The caller executes
+    # this order incrementally and may stop after the first useful result.
+    slot_priority = {
+        SlotKind.VERIFIED_CALLEE_EDGE: 0,
+        SlotKind.VERIFIED_CALLER_EDGE: 0,
+        SlotKind.IMPLEMENTATION: 1,
+        SlotKind.DEFINITION: 2,
+        SlotKind.CANDIDATE_REFERENCE: 3,
+    }
+    gap_tasks.sort(key=lambda t: slot_priority.get(next(iter(t.required_slots)), 9))
     return gap_tasks[:3]
 
 

@@ -51,7 +51,8 @@ class ReviewPipeline:
         self.reporter = ReportGenerator()
         self.llm_reviewer = llm_reviewer  # M3: 可选 LLMReviewer
 
-    def run(self, repo_path: str, base_ref: str = "HEAD~1", head_ref: str = "HEAD") -> ReviewOutput:
+    def run(self, repo_path: str, base_ref: str = "HEAD~1", head_ref: str = "HEAD",
+            on_plan=None) -> ReviewOutput:
         """执行完整审查流程（M2 确定性 + M3 可选 LLM）。"""
         t0 = time.perf_counter()
         output = ReviewOutput()
@@ -92,6 +93,8 @@ class ReviewPipeline:
         # M3: 有 LLM reviewer 且计划允许时，开启 LLM 审查
         if self.llm_reviewer:
             plan_dict["enable_llm_semantic_review"] = True
+        if on_plan:
+            on_plan(plan_dict)
 
         # Step 3: Executor 执行静态工具
         exec_result = self.executor.execute(repo_path, base_ref, head_ref, plan_dict)
