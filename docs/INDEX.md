@@ -533,7 +533,7 @@ v2 数据集元数据：dataset_version / git_commit / prompt_version / coverage
 ## 文档 / 规划
 
 ### `README.md`
-项目总览与文件树：里程碑完成度表、完整文件树（含各文件作用）、评测数据集 700 条内容概览。
+GitHub 首页 README：badges、快速开始（安装/CLI/Docker/API）、架构概览图、里程碑进度、评测数据集概览、项目结构精简树、设计理念、测试命令。
 
 ### `CLAUDE.md`
 项目编码规范（长期生效）：规范零（输出语言：一律中文）、规范一（文件索引管理）、规范二（修改留痕 CHANGELOG）。
