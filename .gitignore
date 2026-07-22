@@ -33,3 +33,9 @@ eval_report/results/
 eval_report/results_baseline_*/
 eval_report/reports/
 review_output.json
+
+# 本地依赖缓存
+.deps/
+
+# 临时测试文件
+code.py

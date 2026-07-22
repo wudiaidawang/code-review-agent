@@ -13,7 +13,8 @@ import time
 from app.pipeline.eval_dataset import load_samples, EvalSample, InvestigationEvalSample
 from app.pipeline.eval_metrics import compute, EvalMetrics
 from app.pipeline.plan_builder import RuleBasedPlanBuilder
-from app.agent.investigator import InvestigationAgent, _classify
+from app.agent.investigator import InvestigationAgent
+from app.agent.query_planner import query_planner
 from app.tools.llm_tool import chat
 
 
@@ -275,7 +276,8 @@ def run_agent_benchmark(top_n: int | None = None, verbose: bool = True) -> dict:
         expected_tools = set(gt.get("expected_tools", []))
 
         # 1. Question Type Accuracy
-        pred_qtype = _classify(q)
+        # V24: 问题类型由 Query Planner（查询规划器）产出，而不再从调查器导入旧分类器。
+        pred_qtype = query_planner(q, call_llm=None).question_type
         qtype_ok = pred_qtype == expected_qtype if expected_qtype else True
         if qtype_ok:
             qtype_correct += 1

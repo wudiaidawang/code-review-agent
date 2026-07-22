@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import io
 import tarfile
+import posixpath
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -130,6 +131,78 @@ class WorkspaceManager:
             config=self.config,
         )
         return ws
+
+    def read_file_at_ref(self, repo_path: str, ref: str | None,
+                         relative_path: str) -> str:
+        """Read one tracked source file directly from a Git object.
+
+        This is the sparse-read counterpart to :meth:`prepare`.  It preserves
+        the same path, extension, byte-size, and timeout constraints, but does
+        not export an entire repository snapshot merely to inspect one already
+        selected file.  It is therefore appropriate for Agent evidence windows
+        on repositories whose total file count exceeds ``max_files``.
+        """
+        repo_path = os.path.abspath(repo_path)
+        self._validate_git_repo(repo_path)
+        path = self._validate_relative_source_path(relative_path)
+        ref = ref or "HEAD"
+        object_spec = f"{ref}:{path}"
+
+        try:
+            size_result = subprocess.run(
+                ["git", "-C", repo_path, "cat-file", "-s", object_spec],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=True,
+                timeout=self.config.export_timeout_s,
+            )
+            size = int(size_result.stdout.strip())
+        except (subprocess.SubprocessError, ValueError) as exc:
+            raise ValueError(f"unable to read tracked file: {relative_path}") from exc
+
+        if size > self.config.max_file_bytes:
+            raise ValueError(f"file exceeds size limit: {relative_path}")
+
+        try:
+            content_result = subprocess.run(
+                ["git", "-C", repo_path, "show", object_spec],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=True,
+                timeout=self.config.export_timeout_s,
+            )
+        except subprocess.SubprocessError as exc:
+            raise ValueError(f"unable to read tracked file: {relative_path}") from exc
+        return content_result.stdout.decode("utf-8", errors="replace")
+
+    def _validate_relative_source_path(self, relative_path: str) -> str:
+        if not isinstance(relative_path, str) or not relative_path:
+            raise ValueError("relative source path is required")
+        path = relative_path.replace("\\", "/")
+        normalized = posixpath.normpath(path)
+        if (path.startswith("/") or os.path.isabs(relative_path)
+                or normalized in ("", ".") or normalized == ".."
+                or normalized.startswith("../") or "\x00" in path
+                or ":" in path):
+            raise ValueError(f"path escapes workspace: {relative_path}")
+        if os.path.splitext(normalized)[1].lower() not in self.config.allowed_extensions:
+            raise ValueError(f"unsupported file type: {relative_path}")
+        return normalized
+
+    @staticmethod
+    def _validate_git_repo(repo_path: str) -> None:
+        try:
+            result = subprocess.run(
+                ["git", "-C", repo_path, "rev-parse", "--is-inside-work-tree"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=True,
+                timeout=5,
+            )
+        except subprocess.SubprocessError as exc:
+            raise ValueError(f"not a valid git repository: {repo_path}") from exc
+        if result.stdout.strip() != b"true":
+            raise ValueError(f"not a valid git repository: {repo_path}")
 
     # ---- 内部 --------------------------------------------------------
 

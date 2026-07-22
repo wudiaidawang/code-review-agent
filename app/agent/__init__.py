@@ -2,10 +2,10 @@
 
 from app.agent.investigator import (
     InvestigationAgent, InvestigationResult,
-    InvestigationState, InvestigationStore, StepRecord,
+    InvestigationStore, StepRecord,
 )
 
 __all__ = [
     "InvestigationAgent", "InvestigationResult",
-    "InvestigationState", "InvestigationStore", "StepRecord",
+    "InvestigationStore", "StepRecord",
 ]

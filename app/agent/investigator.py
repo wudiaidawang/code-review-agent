@@ -1,18 +1,26 @@
-"""V1.1 Investigation Agent — 代码库探索模式
+"""V1.1 Investigation Agent — V22 Task-driven 6-phase exploration.
 
-M3: 假设驱动的有限状态调查循环 + 预算管理 + 跨工具关联 + 续问上下文。
-支持 investigation_id 持久化、续问复用已有证据、跨轮证据引用。
+V22: EvidenceClosureEngine replaced by task_explorer.py 全局优先队列探查.
+Six phases: Query→LLM decompose→Global queue→Contract check→Gap fill→Retool→Synthesis.
 """
 
 import hashlib
+import json
 import os
 import re
+import subprocess
 import time
 import uuid
 from dataclasses import dataclass, field
 
 from app.models.evidence import Evidence
 from app.models.location import CodeLocation
+from app.models.target import (
+    TargetSpec, MissingRequirement, SuggestedAction, SufficiencyJudgment,
+    ClaimCitation, Requirement, StepStatus,
+    InvestigationTask, WorkOrder, StateDecision,
+    TaskRole, TaskStatus, GapStrategy,
+)
 from app.core.workspace import WorkspaceManager
 from app.tools.llm_tool import chat
 from app.tools.search_tool import SearchTool
@@ -21,7 +29,20 @@ from app.tools.dependency_tool import DependencyTool
 from app.tools.git_tool import GitTool
 from app.tools.contract import ToolRequest
 from app.pipeline.knowledge_retriever import StaticKnowledge
+from app.agent.evidence_closure import (
+    SlotKind, targets_from_tasks, check_minimum_evidence_contract,
+    AnswerTarget,
+)
+from app.agent.task_explorer import (
+    ExplorationState, ToolExecutor,
+    fill_work_orders, _deterministic_work_orders,
+    discover_tasks, gap_analyzer, _deterministic_gap_fill,
+    _execute_task, _execute_task_subtree, _task_status,
+    _build_retool_task, _determine_stop_reason,
+    MAX_ORDERS_PER_TASK,
+)
 
+# ── 常量 ──────────────────────────────────────────────────────────
 
 _KEYWORD_STOP_WORDS = frozenset({
     "the", "is", "are", "where", "what", "how", "does", "do", "in",
@@ -34,144 +55,36 @@ _GENERIC_SEARCH_TERMS = frozenset({
     "config", "configuration", "module", "package", "project", "system",
 })
 
+_LLM_CALL_KWARGS = {"timeout": 60, "extra_body": {"thinking": {"type": "disabled"}}}
 
-def _normalize_search_keyword(value: str) -> str | None:
-    """Return a searchable terminal symbol; reject broad natural-language terms."""
-    candidate = value.strip().strip("`'\"()[]{} ")
-    if not candidate:
-        return None
-    candidate = re.split(r"(?:\.|::)", candidate)[-1].strip()
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", candidate):
-        return None
-    if candidate.lower() in _KEYWORD_STOP_WORDS | _GENERIC_SEARCH_TERMS:
-        return None
-    return candidate
+_LOW_PRIORITY_CONTEXT_DIRS = frozenset({
+    "docs", "doc", "docs_src", "examples", "example",
+    "tests", "test", "benchmarks", "scripts",
+})
 
+_SLOT_CN: dict[SlotKind, str] = {
+    SlotKind.DEFINITION: "定义位置",
+    SlotKind.IMPLEMENTATION: "完整实现体",
+    SlotKind.CANDIDATE_REFERENCE: "候选引用",
+    SlotKind.VERIFIED_CALLER_EDGE: "已验证调用者",
+    SlotKind.VERIFIED_CALLEE_EDGE: "已验证被调用者",
+    SlotKind.HELPER_IMPLEMENTATION: "关键辅助函数实现",
+    SlotKind.NEGATIVE_SEARCH: "已确认不存在",
+}
 
-# ---- 数据结构 ------------------------------------------------------------
-
-@dataclass
-class StepRecord:
-    """单步调查记录 — 保证完整可重放。"""
-    step: int
-    tool: str
-    params: dict = field(default_factory=dict)
-    status: str = "success"
-    evidence_count: int = 0
-    hypothesis_before: str = ""
-    hypothesis_after: str = ""
-    decision: str = ""
-    budget_reason: str = ""
-    duration_ms: float = 0.0
-
-    def to_dict(self) -> dict:
-        return {
-            "step": self.step,
-            "tool": self.tool,
-            "params": self.params,
-            "status": self.status,
-            "evidence_count": self.evidence_count,
-            "hypothesis_before": self.hypothesis_before,
-            "hypothesis_after": self.hypothesis_after,
-            "decision": self.decision,
-            "budget_reason": self.budget_reason,
-            "duration_ms": round(self.duration_ms, 1),
-        }
-
-
-@dataclass
-class InvestigationResult:
-    """一次调查的完整产出。"""
-    question: str
-    answer: str = ""
-    evidence: list[Evidence] = field(default_factory=list)
-    files_visited: list[str] = field(default_factory=list)
-    findings: list[str] = field(default_factory=list)
-    plan: list[str] = field(default_factory=list)
-    trace: list[str] = field(default_factory=list)
-    steps: list[dict] = field(default_factory=list)
-    investigation_id: str = ""
-    is_follow_up: bool = False
-    reused_evidence_refs: list[str] = field(default_factory=list)
-    duration_ms: float = 0.0
-
-    def to_dict(self) -> dict:
-        return {
-            "question": self.question,
-            "answer": self.answer,
-            "evidence": [e.to_dict() for e in self.evidence],
-            "files_visited": self.files_visited,
-            "findings": self.findings,
-            "plan": self.plan,
-            "trace": self.trace,
-            "steps": self.steps,
-            "investigation_id": self.investigation_id,
-            "is_follow_up": self.is_follow_up,
-            "reused_evidence_refs": self.reused_evidence_refs,
-            "duration_ms": round(self.duration_ms, 1),
-        }
-
-
-# ---- 调查会话持久化 -------------------------------------------------------
-
-class InvestigationStore:
-    """调查会话持久化存储 — 支持续问上下文复用。"""
-
-    def __init__(self):
-        self._sessions: dict[str, dict] = {}
-
-    def save(self, investigation_id: str, state: "InvestigationState") -> None:
-        self._sessions[investigation_id] = {
-            "question": state.question,
-            "goal": state.goal,
-            "keywords": list(state.keywords),
-            "hypotheses": list(state.hypotheses),
-            "confirmed": list(state.confirmed),
-            "evidence": [e.to_dict() for e in state.evidence],
-            "steps": [s.to_dict() for s in state.steps],
-            "files_visited": sorted(state.files_visited),
-            "trace": list(state.trace),
-            "files_read": state.files_read,
-            "tokens_used": state.tokens_used,
-        }
-
-    def load(self, investigation_id: str) -> dict | None:
-        return self._sessions.get(investigation_id)
-
-    def delete(self, investigation_id: str) -> None:
-        self._sessions.pop(investigation_id, None)
-
-    @property
-    def session_count(self) -> int:
-        return len(self._sessions)
-
-
-# ---- 问题类型识别 --------------------------------------------------------
-
-_QUESTION_PATTERNS = [
-    (r"在哪|在哪里|where|定义|defined|位置|location|哪个文件|which file", "locate"),
-    (r"做什么|干什么|what.*do|作用|功能|purpose|负责", "explain"),
-    (r"影响|affect|impact|后果|导致|break|破坏", "impact"),
-    (r"调用|calls?|invoke|依赖|depends|import|连接|connect", "trace"),
-    (r"所有|全部|all|every|list|列举|find.*all", "grep"),
-]
-
-
-def _classify(question: str) -> str:
-    lower = question.lower()
-    for pattern, qtype in _QUESTION_PATTERNS:
-        if re.search(pattern, lower):
-            return qtype
-    return "locate"
-
-
-# ---- 工具优先级表 --------------------------------------------------------
+_HYPOTHESIS_TEMPLATES = {
+    "locate":  "符号 {kw} 定义在某个 .py 文件中",
+    "explain": "符号 {kw} 是一个函数/类，其作用可通过代码和 AST 推断",
+    "trace":   "符号 {kw} 被其他函数调用，也调用了其他函数",
+    "impact":  "修改符号 {kw} 会影响其调用者和被调用者",
+    "grep":    "仓库中有若干处使用了模式 {kw}",
+}
 
 _TOOL_PRIORITY = {
-    "locate":  ["search", "search_filename", "python_ast"],
-    "explain": ["search", "search_filename", "python_ast", "dependency", "knowledge"],
-    "trace":   ["search", "search_filename", "python_ast", "dependency", "git"],
-    "impact":  ["search", "search_filename", "python_ast", "dependency", "git"],
+    "locate":  ["search", "search_filename", "resolve_symbol", "python_ast"],
+    "explain": ["search", "search_filename", "resolve_symbol", "python_ast", "dependency", "knowledge"],
+    "trace":   ["search", "search_filename", "resolve_symbol", "python_ast", "dependency", "git"],
+    "impact":  ["search", "search_filename", "resolve_symbol", "python_ast", "dependency", "git"],
     "grep":    ["search", "search_filename"],
 }
 
@@ -185,196 +98,1259 @@ _DEDUP_KEYS = {
 }
 
 
-# ---- 假设模板 ------------------------------------------------------------
+# ── 辅助函数 ──────────────────────────────────────────────────────
 
-_HYPOTHESIS_TEMPLATES = {
-    "locate":  "符号 {kw} 定义在某个 .py 文件中",
-    "explain": "符号 {kw} 是一个函数/类，其作用可通过代码和 AST 推断",
-    "trace":   "符号 {kw} 被其他函数调用，也调用了其他函数",
-    "impact":  "修改符号 {kw} 会影响其调用者和被调用者",
-    "grep":    "仓库中有若干处使用了模式 {kw}",
-}
+def _get_repo_commit(repo_path: str) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_path, text=True, encoding="utf-8",
+        ).strip()
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        return "HEAD"
 
 
-# ---- InvestigationAgent -------------------------------------------------
+def _normalize_search_keyword(value: str) -> TargetSpec | None:
+    candidate = value.strip().strip("`'\"()[]{} ")
+    if not candidate:
+        return None
+    if "::" in candidate:
+        parts = candidate.rsplit("::", 1)
+    elif "." in candidate:
+        parts = candidate.rsplit(".", 1)
+    else:
+        parts = [candidate]
+    if len(parts) == 2:
+        owner, member = parts[0].strip(), parts[1].strip()
+    else:
+        owner, member = "", parts[0].strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", member):
+        return None
+    if member.lower() in _KEYWORD_STOP_WORDS | _GENERIC_SEARCH_TERMS:
+        return None
+    if member[0].isupper():
+        kind = "class"
+    elif "_" in member:
+        kind = "variable"
+    else:
+        kind = "method"
+    return TargetSpec(
+        qualified_symbol=candidate if (owner or "." in candidate) else member,
+        owner_symbol=owner or member,
+        member_symbol=member,
+        symbol_kind=kind,
+    )
+
+
+# ── 数据结构 ──────────────────────────────────────────────────────
+
+@dataclass
+class StepRecord:
+    step: int
+    tool: str
+    params: dict = field(default_factory=dict)
+    status: str = "success"
+    evidence_count: int = 0
+    hypothesis_before: str = ""
+    hypothesis_after: str = ""
+    decision: str = ""
+    budget_reason: str = ""
+    duration_ms: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "step": self.step, "tool": self.tool, "params": self.params,
+            "status": self.status, "evidence_count": self.evidence_count,
+            "hypothesis_before": self.hypothesis_before,
+            "hypothesis_after": self.hypothesis_after,
+            "decision": self.decision, "budget_reason": self.budget_reason,
+            "duration_ms": round(self.duration_ms, 1),
+        }
+
+
+@dataclass(frozen=True)
+class ActionCandidate:
+    """向后兼容：V15-V21 的行动候选类型。V22 task_explorer 不再使用此类。"""
+    key: str
+    gap: str
+    tool: str
+    target: str
+    expected_evidence: str
+    params: dict = field(default_factory=dict)
+    depth: int = 1
+    value: int = 0
+
+    def to_dict(self) -> dict:
+        return {
+            "key": self.key, "gap": self.gap, "tool": self.tool,
+            "target": self.target, "expected_evidence": self.expected_evidence,
+            "params": dict(self.params), "depth": self.depth, "value": self.value,
+        }
+
+
+@dataclass
+class InvestigationResult:
+    question: str
+    answer: str = ""
+    evidence: list[Evidence] = field(default_factory=list)
+    files_visited: list[str] = field(default_factory=list)
+    findings: list[str] = field(default_factory=list)
+    plan: list[str] = field(default_factory=list)
+    trace: list[str] = field(default_factory=list)
+    steps: list[dict] = field(default_factory=list)
+    investigation_id: str = ""
+    is_follow_up: bool = False
+    reused_evidence_refs: list[str] = field(default_factory=list)
+    claims: list[ClaimCitation] = field(default_factory=list)
+    duration_ms: float = 0.0
+    # ── V22 诊断字段 ──────────────────────────────────────────────
+    planned_tasks: list[dict] = field(default_factory=list)
+    all_tasks: list[dict] = field(default_factory=list)
+    work_orders: list[dict] = field(default_factory=list)
+    verified_evidence_summary: dict[str, list[str]] = field(default_factory=dict)
+    candidate_evidence_count: dict[str, int] = field(default_factory=dict)
+    required_slots: dict[str, list[str]] = field(default_factory=dict)
+    closed_slots: dict[str, list[str]] = field(default_factory=dict)
+    open_slots: dict[str, list[str]] = field(default_factory=dict)
+    contract_met_before: bool = False
+    contract_met_after: bool = False
+    final_contract_met: bool = False
+    stop_reason: str = ""
+    retool_triggered: bool = False
+    # ── V23 Claims 诊断 ──────────────────────────────────────────
+    required_claims: list[str] = field(default_factory=list)
+    covered_claims: list[int] = field(default_factory=list)
+    uncovered_claims: list[int] = field(default_factory=list)
+    claim_coverage_rate: float = 0.0
+
+    def to_dict(self) -> dict:
+        d = {
+            "question": self.question, "answer": self.answer,
+            "evidence": [e.to_dict() for e in self.evidence],
+            "files_visited": self.files_visited, "findings": self.findings,
+            "plan": self.plan, "trace": self.trace, "steps": self.steps,
+            "investigation_id": self.investigation_id,
+            "is_follow_up": self.is_follow_up,
+            "reused_evidence_refs": self.reused_evidence_refs,
+            "claims": [{"text": c.text, "evidence_ids": c.evidence_ids} for c in self.claims],
+            "duration_ms": round(self.duration_ms, 1),
+            # V22 诊断
+            "planned_tasks": self.planned_tasks,
+            "all_tasks": self.all_tasks,
+            "work_orders": self.work_orders,
+            "verified_evidence_summary": self.verified_evidence_summary,
+            "candidate_evidence_count": self.candidate_evidence_count,
+            "required_slots": self.required_slots,
+            "closed_slots": self.closed_slots,
+            "open_slots": self.open_slots,
+            "contract_met_before": self.contract_met_before,
+            "contract_met_after": self.contract_met_after,
+            "final_contract_met": self.final_contract_met,
+            "stop_reason": self.stop_reason,
+            "retool_triggered": self.retool_triggered,
+            # V23 Claims 诊断
+            "required_claims": self.required_claims,
+            "covered_claims": self.covered_claims,
+            "uncovered_claims": self.uncovered_claims,
+            "claim_coverage_rate": self.claim_coverage_rate,
+        }
+        return d
+
+
+class InvestigationStore:
+    """调查会话持久化存储."""
+
+    def __init__(self):
+        self._sessions: dict[str, dict] = {}
+
+    def save(self, investigation_id: str, state: ExplorationState) -> None:
+        self._sessions[investigation_id] = {
+            "question": state.question,
+            "question_type": state.question_type,
+            "evidence": [
+                ev.to_dict() for ev_list in state.all_evidence.values()
+                for ev in [ev_list] if hasattr(ev, 'to_dict')
+            ],
+            "steps": list(state.steps),
+            "trace": list(state.traces),
+            "all_evidence": {k: v.to_dict() for k, v in state.all_evidence.items()},
+            "verified_evidence": {
+                k: [ev.to_dict() for ev in v]
+                for k, v in state.verified_evidence.items()
+            },
+            "tasks": [t.to_dict() for t in state.all_tasks],
+        }
+
+    def load(self, investigation_id: str) -> dict | None:
+        return self._sessions.get(investigation_id)
+
+    def delete(self, investigation_id: str) -> None:
+        self._sessions.pop(investigation_id, None)
+
+    @property
+    def session_count(self) -> int:
+        return len(self._sessions)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# InvestigationAgent — V22
+# ═══════════════════════════════════════════════════════════════════
 
 class InvestigationAgent:
-    """M3: 假设驱动的有限状态调查循环 + 续问上下文。
-
-    支持 investigation_id 持久化，续问复用已有证据，跨轮证据引用。
-    """
+    """V22: Task-driven 6-phase exploration with global priority queue."""
 
     def __init__(self, call_llm=None, store: InvestigationStore | None = None):
         self.call_llm = call_llm or chat
         self.store = store or InvestigationStore()
 
-    # ---- 主入口 ----------------------------------------------------------
+    # ── 主入口 ──────────────────────────────────────────────────────
 
     def investigate(self, repo_path: str, question: str) -> InvestigationResult:
+        """V22 6-phase main flow.
+
+        Phase 1: LLM decompose → InvestigationTask list
+        Phase 2: Global priority-queue exploration
+        Phase 3: Rule-based contract check (verified evidence only)
+        Phase 4: Deterministic gap fill (if contract not met)
+        Phase 5: LLM one-shot retool (if contract met, gaps remain)
+        Phase 6: Synthesis (verified evidence only)
+        """
         t0 = time.perf_counter()
         abs_path = os.path.abspath(repo_path)
 
-        goal = _classify(question)
-        keywords = self._extract_keywords(question)
-        if not keywords:
-            inv_id = self._new_investigation_id(question)
-            result = InvestigationResult(question=question, investigation_id=inv_id)
-            result.answer = "无法从问题中提取关键词，请提供具体的函数名、类名或文件名。"
-            result.duration_ms = (time.perf_counter() - t0) * 1000
-            result.trace.append("error=empty_keywords")
-            return result
+        # ── Phase 1: LLM 分解任务（V24: relation 驱动）──────────────
+        tasks, required_claims, planner_output = self._plan_question(question)
+        if not tasks:
+            return InvestigationResult(
+                question=question,
+                answer="无法将问题分解为调查任务，请提供更具体的问题。")
 
-        state = InvestigationState(question=question, goal=goal, keywords=keywords)
-        self._seed_hypotheses(state)
+        state = ExplorationState(
+            question=question,
+            question_type=planner_output.question_type,
+            repo_path=abs_path,
+            repo_revision=_get_repo_commit(abs_path),
+        )
+        state.required_claims = required_claims
+        state.planner_output = planner_output
+        for t in tasks:
+            t.role = TaskRole.ROOT
+            t.subtree_depth = 0
+        state.enqueue_tasks(tasks)
 
-        # 主循环
-        while state.steps_remaining > 0:
-            budget_block = self._check_budget(state)
-            if budget_block:
-                dummy = StepRecord(
-                    step=len(state.steps) + 1, tool="(blocked)",
-                    decision="BUDGET", budget_reason=budget_block,
-                )
-                state.steps.append(dummy)
-                state.trace.append(f"budget_exhausted: {budget_block}")
+        tool_executor = ToolExecutor(abs_path)
+
+        # ── Phase 2: 全局优先队列探查 ──────────────────────────────
+        state.current_phase = "MAIN"
+        while (state.has_pending()
+               and state.main_steps_used < state.max_main_steps):
+            task = state.pop_next()
+            if task is None:
                 break
+            _execute_task(task, state, allow_children=True,
+                          tool_executor=tool_executor)
+        state.traces.append(
+            f"phase2_done: main_steps={state.main_steps_used} "
+            f"tasks={len(state.all_tasks)} pending={len(state.pending_tasks)}")
 
-            tool_name = self._select_next_tool(state)
-            if tool_name is None:
-                state.trace.append("decision=no_applicable_tool")
-                break
+        # ── Phase 3: 规则判定（只用 verified evidence）─────────────
+        contract_met, reason = self._judge_contract(state)
+        state.contract_met_before = contract_met
+        state.traces.append(f"phase3_contract: met={contract_met} reason={reason}")
 
-            step = self._execute_step(abs_path, state, tool_name)
-            state.steps.append(step)
-            self._update_hypotheses(state, step)
+        # ── Phase 4: 确定性补缺 ────────────────────────────────────
+        if not contract_met:
+            state.current_phase = "GAP"
+            required_tasks = [t for t in state.all_tasks
+                            if t.role in (TaskRole.ROOT, TaskRole.REQUIRED)]
+            targets = targets_from_tasks(required_tasks, state.question_type)
+            gap_tasks = _deterministic_gap_fill(targets, state)
+            for gt in gap_tasks[:3]:
+                gt.role = TaskRole.GAP
+                gt.subtree_depth = 0
+                state.register_task(gt)
+                _execute_task_subtree(gt, state,
+                                      max_depth=state.max_subtree_depth,
+                                      budget_phase="GAP",
+                                      tool_executor=tool_executor)
+            contract_met, reason = self._judge_contract(state)
+            state.contract_met_after_gap = contract_met
+            state.traces.append(
+                f"phase4_gap: gap_tasks={len(gap_tasks)} "
+                f"met={contract_met} reason={reason}")
 
-            decision, budget_reason = self._evaluate(state, step)
-            step.decision = decision
-            step.budget_reason = budget_reason
-            state.trace.append(
-                f"step_{step.step}: tool={step.tool} status={step.status} "
-                f"evidence={step.evidence_count} decision={decision}"
-                + (f" budget={budget_reason}" if budget_reason else "")
+        # ── Phase 5: LLM 一次补缺 ──────────────────────────────────
+        # LLM 仅能在规则已经跑完主队列和确定性补缺后，对现有证据缺口申请一次补充工具调用。
+        # 不要把“合同已满足”当成件：它恰恰会让实际缺证时的 retool 永远不触发。
+        # Draft first, then let the LLM audit a concrete answer against the
+        # claims.  This grants one bounded planning request, not a free-form
+        # recall/rewrite loop: the returned task is still schema-validated and
+        # executed by the deterministic scheduler.
+        state.stop_reason = _determine_stop_reason(state, contract_met)
+        provisional_result = self._synthesize_v22(question, state, abs_path)
+        state.traces.append("phase5_answer_audit: provisional draft created")
+
+        # An answer audit may request one Task only for an explicit ledger
+        # deficit.  Without this gate it became a near-mandatory extra tool
+        # call even for fully closed locate answers.
+        if (not state.retool_used and state.all_evidence
+                and (not contract_met or state.uncovered_claims)):
+            state.current_phase = "RETOOL"
+            gap = gap_analyzer(
+                question, state, call_llm=self.call_llm,
+                draft_answer=provisional_result.answer,
             )
+            if gap.get("action") == "add_one_task":
+                retool_task = _build_retool_task(gap, state)
+                retool_task.role = TaskRole.RETOOL
+                retool_task.subtree_depth = 0
+                state.retool_task = retool_task
+                state.retool_used = True
+                state.register_task(retool_task)
+                _execute_task_subtree(retool_task, state,
+                                      max_depth=state.max_subtree_depth,
+                                      budget_phase="RETOOL",
+                                      tool_executor=tool_executor)
+                contract_met, reason = self._judge_contract(state)
+                state.contract_met_after_retool = contract_met
+                state.traces.append(
+                    f"phase5_retool: met={contract_met} reason={reason}")
+            else:
+                state.traces.append(
+                    f"phase5_answer_audit: no task action={gap.get('action')}")
 
-            if decision != "CONTINUE":
-                break
+        # ── Phase 6: 合成（只用 verified evidence）─────────────────
+        state.stop_reason = _determine_stop_reason(state, contract_met)
+        state.final_contract_met = contract_met
+        state.traces.append(f"phase6_stop: {state.stop_reason}")
 
-        # 生成 investigation_id 并持久化
+        result = (self._synthesize_v22(question, state, abs_path)
+                  if state.retool_used else provisional_result)
+        result.duration_ms = (time.perf_counter() - t0) * 1000
+        result.trace = list(state.traces)
+        result.steps = list(state.steps)
+        result.plan = [s.get("tool", "") for s in state.steps]
+        self._populate_v22_diagnostics(result, state)
+
         inv_id = self._new_investigation_id(question)
-        self.store.save(inv_id, state)
-
-        result = self._synthesize(state, abs_path, t0)
         result.investigation_id = inv_id
-        result.plan = [s.tool for s in state.steps]
-        result.trace = state.trace
-        result.steps = [s.to_dict() for s in state.steps]
+        self.store.save(inv_id, state)
         return result
 
-    # ---- 续问入口 ----------------------------------------------------------
+    # ── 续问入口 ──────────────────────────────────────────────────
 
     def follow_up(self, repo_path: str, investigation_id: str,
                   question: str) -> InvestigationResult:
-        """接续已有调查，复用证据回答新问题。
-
-        若已有证据能覆盖新问题 → 直接合成（0 次新工具调用）。
-        若部分覆盖 → 加载状态、追加工具步骤、合并证据。
-        """
+        """续问：加载已有证据 → 新问题分解 → 补缺 → 合成。"""
         t0 = time.perf_counter()
         abs_path = os.path.abspath(repo_path)
 
         session = self.store.load(investigation_id)
         if session is None:
             result = InvestigationResult(
-                question=question, investigation_id=investigation_id,
-                is_follow_up=True,
-            )
-            result.answer = f"未找到调查会话 {investigation_id}，请先执行首次调查。"
+                question=question, answer="会话不存在，无法续问。",
+                investigation_id=investigation_id, is_follow_up=True)
             result.duration_ms = (time.perf_counter() - t0) * 1000
             return result
 
-        keywords = self._extract_keywords(question)
-        if not keywords:
-            result = InvestigationResult(
-                question=question, investigation_id=investigation_id,
-                is_follow_up=True,
-            )
-            result.answer = "无法从续问中提取关键词。"
-            result.duration_ms = (time.perf_counter() - t0) * 1000
-            return result
-
-        # 检查已有证据是否覆盖新问题
-        matched_refs = self._match_existing_evidence(session, question, keywords)
-        sufficient = len(matched_refs) >= 3
-
-        if sufficient:
-            # 纯复用：已有证据足够回答
+        tasks, required_claims, planner_output = self._plan_question(question)
+        targets = targets_from_tasks(tasks, planner_output.question_type)
+        if not targets:
             result = InvestigationResult(
                 question=question,
-                investigation_id=investigation_id,
-                is_follow_up=True,
-                reused_evidence_refs=matched_refs[:10],
-                files_visited=session["files_visited"],
-            )
-            result = self._synthesize_follow_up(result, session, question,
-                                                matched_refs, abs_path, t0)
+                answer="无法确认：续问未能生成可验证的调查目标。",
+                investigation_id=investigation_id, is_follow_up=True)
+            result.duration_ms = (time.perf_counter() - t0) * 1000
             return result
 
-        # 部分覆盖：恢复状态，追加工具步骤
-        state = self._restore_state(session, question)
-        state.keywords = keywords
+        # 恢复已有证据
+        existing_ev: dict[str, Evidence] = {}
+        for ev_dict in session.get("evidence", []):
+            try:
+                ev = Evidence.from_dict(ev_dict)
+                if ev.id:
+                    existing_ev[ev.id] = ev
+            except Exception:
+                continue
 
-        while state.steps_remaining > 0:
-            budget_block = self._check_budget(state)
-            if budget_block:
-                dummy = StepRecord(
-                    step=len(state.steps) + 1, tool="(blocked)",
-                    decision="BUDGET", budget_reason=budget_block,
-                )
-                state.steps.append(dummy)
-                state.trace.append(f"budget_exhausted: {budget_block}")
+        # 构建 state 并注入已有证据
+        state = ExplorationState(
+            question=question,
+            question_type=planner_output.question_type,
+            repo_path=abs_path,
+            repo_revision=_get_repo_commit(abs_path),
+        )
+        state.required_claims = required_claims
+        state.planner_output = planner_output
+        for t in tasks:
+            t.role = TaskRole.ROOT
+            t.subtree_depth = 0
+        state.enqueue_tasks(tasks)
+        # 注入已有证据
+        state.all_evidence = dict(existing_ev)
+        for ev in existing_ev.values():
+            state.add_verified_evidence(ev, "follow_up_reused")
+
+        tool_executor = ToolExecutor(abs_path)
+
+        # Phase 2: 探查
+        state.current_phase = "MAIN"
+        while (state.has_pending()
+               and state.main_steps_used < state.max_main_steps):
+            task = state.pop_next()
+            if task is None:
                 break
+            _execute_task(task, state, allow_children=True,
+                          tool_executor=tool_executor)
 
-            tool_name = self._select_next_tool(state)
-            if tool_name is None:
-                state.trace.append("decision=no_applicable_tool")
-                break
+        # Phase 3-5: 合同判定 + 补缺
+        contract_met, reason = self._judge_contract(state)
+        if not contract_met:
+            state.current_phase = "GAP"
+            required_tasks = [t for t in state.all_tasks
+                            if t.role in (TaskRole.ROOT, TaskRole.REQUIRED)]
+            targets = targets_from_tasks(required_tasks, state.question_type)
+            gap_tasks = _deterministic_gap_fill(targets, state)
+            for gt in gap_tasks[:3]:
+                gt.role = TaskRole.GAP
+                gt.subtree_depth = 0
+                state.register_task(gt)
+                _execute_task_subtree(gt, state,
+                                      max_depth=state.max_subtree_depth,
+                                      budget_phase="GAP",
+                                      tool_executor=tool_executor)
+            contract_met, _ = self._judge_contract(state)
 
-            step = self._execute_step(abs_path, state, tool_name)
-            state.steps.append(step)
-            self._update_hypotheses(state, step)
+        # 先形成可审阅草稿。LLM 不是再次接管流程，而是仅可提交一张
+        # schema-validated Task（调查任务）；规则执行它，然后才重新合成。
+        state.stop_reason = _determine_stop_reason(state, contract_met)
+        provisional_result = self._synthesize_v22(question, state, abs_path)
+        state.traces.append("follow_up_answer_audit: provisional draft created")
 
-            decision, budget_reason = self._evaluate(state, step)
-            step.decision = decision
-            step.budget_reason = budget_reason
-            state.trace.append(
-                f"step_{step.step}: tool={step.tool} status={step.status} "
-                f"evidence={step.evidence_count} decision={decision}"
-                + (f" budget={budget_reason}" if budget_reason else "")
+        if (not state.retool_used and state.all_evidence
+                and (not contract_met or state.uncovered_claims)):
+            state.current_phase = "RETOOL"
+            gap = gap_analyzer(
+                question, state, call_llm=self.call_llm,
+                draft_answer=provisional_result.answer,
             )
+            if gap.get("action") == "add_one_task":
+                retool_task = _build_retool_task(gap, state)
+                retool_task.role = TaskRole.RETOOL
+                retool_task.subtree_depth = 0
+                state.retool_task = retool_task
+                state.retool_used = True
+                state.register_task(retool_task)
+                _execute_task_subtree(retool_task, state,
+                                      max_depth=state.max_subtree_depth,
+                                      budget_phase="RETOOL",
+                                      tool_executor=tool_executor)
+                contract_met, reason = self._judge_contract(state)
+                state.contract_met_after_retool = contract_met
+                state.traces.append(
+                    f"follow_up_retool: met={contract_met} reason={reason}")
+            else:
+                state.traces.append(
+                    f"follow_up_answer_audit: no task action={gap.get('action')}")
 
-            if decision != "CONTINUE":
-                break
-
-        self.store.save(investigation_id, state)
-
-        result = self._synthesize(state, abs_path, t0)
+        state.stop_reason = _determine_stop_reason(state, contract_met)
+        state.final_contract_met = contract_met
+        result = (self._synthesize_v22(question, state, abs_path)
+                  if state.retool_used else provisional_result)
         result.investigation_id = investigation_id
         result.is_follow_up = True
+        self._populate_v22_diagnostics(result, state)
+        matched_refs = [
+            ev.id for ev in existing_ev.values()
+            if any(
+                (ev.snippet or "").lower().find(
+                    t.target.rsplit(".", 1)[-1].lower()) >= 0
+                for t in tasks)
+        ]
         result.reused_evidence_refs = matched_refs[:10]
-        result.plan = [s.tool for s in state.steps]
-        result.trace = state.trace
-        result.steps = [s.to_dict() for s in state.steps]
+        result.duration_ms = (time.perf_counter() - t0) * 1000
         return result
 
-    # ---- 证据匹配 ---------------------------------------------------------
+    # ── Phase 1: 任务分解 ──────────────────────────────────────────
+
+    def _plan_question(self, question: str) -> tuple[list[InvestigationTask], list[str], "PlannerOutput"]:
+        """V24: 调用新版 query_planner → PlannerOutput → expand → tasks。"""
+        from app.agent.query_planner import query_planner
+        from app.agent.evidence_closure import tasks_from_planner_output
+        planner_output = query_planner(question, call_llm=self.call_llm)
+        tasks = tasks_from_planner_output(planner_output)
+        return tasks, planner_output.required_claims, planner_output
+
+    # ── Phase 3: 合同判定 ─────────────────────────────────────────
+
+    @staticmethod
+    def _populate_target_slots(state: ExplorationState,
+                                targets: dict) -> None:
+        """将 state.verified_evidence 按 source 分类填充到 targets 的 slot。"""
+        required_tasks = [t for t in state.all_tasks
+                         if t.role in (TaskRole.ROOT, TaskRole.REQUIRED,
+                                       TaskRole.GAP, TaskRole.RETOOL)]
+        for t in required_tasks:
+            ev_list = state.verified_evidence.get(t.id, [])
+            for ev in ev_list:
+                for tid, target in targets.items():
+                    if target.symbol not in t.target and t.target not in target.symbol:
+                        continue
+                    if ev.source == "resolve_symbol":
+                        target.evidence_by_slot.setdefault(
+                            SlotKind.DEFINITION, []).append(ev.id)
+                        target.verified_slots.setdefault(
+                            SlotKind.DEFINITION, []).append(ev.id)
+                    elif ev.source == "read_window":
+                        target.evidence_by_slot.setdefault(
+                            SlotKind.IMPLEMENTATION, []).append(ev.id)
+                        target.verified_slots.setdefault(
+                            SlotKind.IMPLEMENTATION, []).append(ev.id)
+                    elif ev.source == "search_references":
+                        target.evidence_by_slot.setdefault(
+                            SlotKind.CANDIDATE_REFERENCE, []).append(ev.id)
+                        target.verified_slots.setdefault(
+                            SlotKind.CANDIDATE_REFERENCE, []).append(ev.id)
+                    elif ev.source == "verify_callsite":
+                        target.verified_slots.setdefault(
+                            SlotKind.VERIFIED_CALLER_EDGE, []).append(ev.id)
+                    elif ev.source == "verify_callees":
+                        target.verified_slots.setdefault(
+                            SlotKind.VERIFIED_CALLEE_EDGE, []).append(ev.id)
+
+    def _judge_contract(self, state: ExplorationState) -> tuple[bool, str]:
+        """只用 verified evidence 判定合同（结构 + 内容 claims）。"""
+        required_tasks = [t for t in state.all_tasks
+                         if t.role in (TaskRole.ROOT, TaskRole.REQUIRED,
+                                       TaskRole.GAP, TaskRole.RETOOL)]
+        targets = targets_from_tasks(required_tasks, state.question_type)
+        self._populate_target_slots(state, targets)
+        # Run content coverage exactly once per verified-evidence snapshot.
+        # The old path asked the LLM once inside the contract and again for
+        # state diagnostics, allowing the two decisions to disagree.
+        claim_coverage = None
+        if state.required_claims:
+            from app.agent.evidence_closure import check_claim_coverage
+            fingerprint = tuple(sorted(state.all_evidence))
+            if state.claim_coverage_evidence_ids != fingerprint:
+                covered, uncovered, coverage_reason = check_claim_coverage(
+                    state.required_claims, state.all_evidence, self.call_llm)
+                state.covered_claims = covered
+                state.uncovered_claims = uncovered
+                state.claim_coverage_evidence_ids = fingerprint
+            claim_coverage = (
+                state.covered_claims, state.uncovered_claims,
+                f"{len(state.covered_claims)}/{len(state.required_claims)} claims covered",
+            )
+
+        met, reason = check_minimum_evidence_contract(
+            state.question_type, targets, state.all_evidence,
+            required_claims=state.required_claims if state.required_claims else None,
+            call_llm=self.call_llm,
+            claim_coverage=claim_coverage,
+        )
+        return met, reason
+
+    # ── Phase 6: 合成 ─────────────────────────────────────────────
+
+    def _synthesize_v22(self, question: str, state: ExplorationState,
+                        repo_path: str) -> InvestigationResult:
+        """V24 合成：按 relation type 分发到专用合成方法。
+
+        grep/enumerate 类型使用确定性全量输出，不依赖 LLM 挑选子集。
+        """
+        # V24: Relation-type-aware 分发
+        planner_output = getattr(state, "planner_output", None)
+        if planner_output and planner_output.relations:
+            main_rel = planner_output.relations[0]
+            from app.models.target import RelationType
+            if main_rel.type == RelationType.COMPARE_BEHAVIOR:
+                return self._synthesize_compare(question, state, repo_path)
+            elif main_rel.type == RelationType.TRACE_CALL_CHAIN:
+                return self._synthesize_trace(question, state, repo_path)
+            elif main_rel.type == RelationType.EXPLAIN_BEHAVIOR:
+                return self._synthesize_explain(question, state, repo_path)
+            elif main_rel.type == RelationType.IMPACT_CHANGE:
+                return self._synthesize_impact(question, state, repo_path)
+            elif main_rel.type == RelationType.ENUMERATE_USAGES:
+                evidence = list(state.all_evidence.values())
+                ev_by_id = {ev.id: ev for ev in evidence if ev.location}
+                required_tasks = [t for t in state.all_tasks
+                                  if t.role in (TaskRole.ROOT, TaskRole.REQUIRED,
+                                                TaskRole.GAP, TaskRole.RETOOL)]
+                targets = targets_from_tasks(required_tasks, state.question_type)
+                self._populate_target_slots(state, targets)
+                return self._synthesize_grep(
+                    question, state, evidence, ev_by_id, targets)
+            # DEFINITION_LOCATION falls through to default
+
+        # 默认：slot-by-slot 合成（向后兼容）
+        return self._synthesize_default(question, state, repo_path)
+
+    def _synthesize_explain(self, question: str, state: ExplorationState,
+                            repo_path: str) -> InvestigationResult:
+        """解释行为：DEFINITION + IMPLEMENTATION + VERIFIED_CALLEE_EDGE。"""
+        return self._synthesize_default(question, state, repo_path,
+                                        relation_guide="解释该符号的实际行为，说明关键流程和调用关系。")
+
+    def _synthesize_compare(self, question: str, state: ExplorationState,
+                            repo_path: str) -> InvestigationResult:
+        """对比两个符号：各取 DEFINITION + IMPLEMENTATION，逐维度对比。"""
+        return self._synthesize_default(question, state, repo_path,
+                                        relation_guide="对比两个符号在指定维度上的差异，逐项引用证据。")
+
+    def _synthesize_trace(self, question: str, state: ExplorationState,
+                          repo_path: str) -> InvestigationResult:
+        """追踪调用链：DEFINITION + CALLER + CALLEE + IMPLEMENTATION。"""
+        return self._synthesize_default(question, state, repo_path,
+                                        relation_guide="追踪从入口到出口的完整调用链，逐跳引用证据。")
+
+    def _synthesize_impact(self, question: str, state: ExplorationState,
+                            repo_path: str) -> InvestigationResult:
+        """分析影响：DEFINITION + CALLER + CANDIDATE_REFERENCE。"""
+        return self._synthesize_default(question, state, repo_path,
+                                        relation_guide="分析修改该符号的影响范围，列出调用者和引用位置。")
+
+    def _synthesize_grep(self, question: str, state: ExplorationState,
+                          repo_path: str) -> InvestigationResult:
+        """确定性全量输出（grep/enumerate 类型）。"""
+        evidence = list(state.all_evidence.values())
+        ev_by_id = {ev.id: ev for ev in evidence if ev.location}
+        required_tasks = [t for t in state.all_tasks
+                         if t.role in (TaskRole.ROOT, TaskRole.REQUIRED,
+                                       TaskRole.GAP, TaskRole.RETOOL)]
+        targets = targets_from_tasks(required_tasks, state.question_type)
+        self._populate_target_slots(state, targets)
+        return self._synthesize_grep(question, state, evidence, ev_by_id, targets)
+
+    def _synthesize_default(self, question: str, state: ExplorationState,
+                            repo_path: str,
+                            relation_guide: str = "") -> InvestigationResult:
+        """默认 slot-by-slot 合成 — 保持 V22 行为。
+
+        V24: 新增 relation_guide 参数，在 prompt 引导语前插入关系指南。
+        """
+        evidence = list(state.all_evidence.values())
+        ev_by_id = {ev.id: ev for ev in evidence if ev.location}
+
+        # ── 构建 targets + slot 状态 ─────────────────────────────────
+        required_tasks = [t for t in state.all_tasks
+                         if t.role in (TaskRole.ROOT, TaskRole.REQUIRED,
+                                       TaskRole.GAP, TaskRole.RETOOL)]
+        targets = targets_from_tasks(required_tasks, state.question_type)
+
+        # 填充 verified evidence 到每个 target 的 slot
+        self._populate_target_slots(state, targets)
+
+        # ── 构建 slot-aware 上下文 ──────────────────────────────────
+        task_blocks: list[str] = []
+        slot_checklist: list[str] = []
+        all_slot_ev_refs: dict[str, Evidence] = {}  # 所有 slot 证据引用
+        # Keep relation-specific claims attached to the evidence collected for
+        # that task; synthesis must not infer this mapping from a flat pool.
+        claim_evidence: dict[str, list[Evidence]] = {}
+
+        # grep/enumerate 类型：展示全部证据，不截断
+        is_grep_type = state.question_type == "grep"
+        ev_per_task_cap = 0 if is_grep_type else 5  # 0 = 无上限
+
+        for i, task in enumerate(state.all_tasks, 1):
+            ev_list = state.verified_evidence.get(task.id, [])
+            if not ev_list:
+                continue
+
+            slot_names = ", ".join(s.value for s in (task.required_slots or set())) or "default"
+            block = [f"## 任务 {i}：{task.target}", f"Slots：[{slot_names}]"]
+            if task.concept:
+                block.append(f"意图：{task.concept}")
+
+            block.append("证据：")
+            capped = ev_list if ev_per_task_cap == 0 else ev_list[:ev_per_task_cap]
+            for j, ev in enumerate(capped):
+                if ev.location:
+                    loc_str = f"{ev.location.file}:{ev.location.start_line}"
+                    snippet_preview = (ev.snippet or "").replace("\n", " ")[:200]
+                    block.append(f"  [{ev.id}] {ev.source} {loc_str} — {snippet_preview}")
+                    all_slot_ev_refs[ev.id] = ev
+            if ev_per_task_cap == 0 and len(ev_list) > 0:
+                block.append(f"  （共 {len(ev_list)} 条证据）")
+
+            for claim in task.required_claims:
+                claim_evidence.setdefault(claim, []).extend(
+                    ev for ev in ev_list if ev.location
+                )
+
+            task_blocks.append("\n".join(block))
+
+        # ── 构建 slot checklist ─────────────────────────────────────
+        for tid, target in targets.items():
+            cn_label = _SLOT_CN
+            slots_info: list[str] = []
+            slot_all_confirmed = True
+            for slot_kind in target.required_slots:
+                verified = target.verified_slots.get(slot_kind, [])
+                ev_slot = target.evidence_by_slot.get(slot_kind, [])
+                all_eids = list(set(verified + ev_slot))
+                if all_eids:
+                    slots_info.append(
+                        f"  [{slot_kind.value}] 已确认: {', '.join(all_eids[:3])}")
+                    for eid in all_eids[:3]:
+                        if eid in ev_by_id:
+                            all_slot_ev_refs[eid] = ev_by_id[eid]
+                else:
+                    slots_info.append(f"  [{slot_kind.value}] 缺失")
+                    slot_all_confirmed = False
+
+            status_icon = "✓" if slot_all_confirmed else "⚠"
+            slot_checklist.append(
+                f"{status_icon} {target.symbol}: "
+                + "; ".join(s.name for s in target.required_slots))
+            slot_checklist.extend(slots_info)
+
+        has_confirmed = bool(task_blocks)
+
+        # ── EMPTY tier ───────────────────────────────────────────────
+        if not has_confirmed:
+            return InvestigationResult(
+                question=question,
+                evidence=evidence,
+                answer=f"无法回答：未找到与问题相关的证据。"
+                       f"终止原因：{state.stop_reason}。",
+                trace=list(state.traces),
+                steps=list(state.steps),
+                files_visited=sorted({
+                    ev.location.file for ev in evidence if ev.location
+                }),
+            )
+
+        # ── GREP tier: 确定性全量输出 ──────────────────────────────────
+        if is_grep_type:
+            return self._synthesize_grep(question, state, evidence,
+                                         ev_by_id, targets)
+
+        # ── SLOT-AWARE context ──────────────────────────────────────
+        context = "\n\n".join(task_blocks)
+        checklist_text = "\n".join(slot_checklist) if slot_checklist else ""
+
+        # ── Claims checklist ──────────────────────────────────────
+        claims_checklist_text = ""
+        if state.required_claims:
+            claims_lines = ["## 必须回答的内容点"]
+            for i, claim_text in enumerate(state.required_claims):
+                status = "✓" if i not in state.uncovered_claims else "⚠ 证据不足"
+                claims_lines.append(f"  - [{status}] {claim_text}")
+            claims_lines.append("")
+            claims_lines.append(
+                "请确保每个内容点都在回答中有所体现。"
+                "对于标 ⚠ 的内容点，如果确实无法找到证据，请在回答末尾标注「未找到相关证据」。"
+            )
+            claims_checklist_text = "\n".join(claims_lines)
+
+        # ── LLM guide：按 slot 逐项回答 ──────────────────────────────
+        claim_evidence_text = ""
+        if claim_evidence:
+            packet_lines = ["## Claim → Evidence packets"]
+            for claim, claim_evs in claim_evidence.items():
+                deduped: list[Evidence] = []
+                seen_eids: set[str] = set()
+                for ev in claim_evs:
+                    if ev.id not in seen_eids:
+                        seen_eids.add(ev.id)
+                        deduped.append(ev)
+                refs = [
+                    f"[{ev.id}] {ev.location.file}:{ev.location.start_line}"
+                    for ev in deduped[:4] if ev.location
+                ]
+                if refs:
+                    packet_lines.append(
+                        f"- Claim: {claim}\n  Evidence: {', '.join(refs)}"
+                    )
+            if len(packet_lines) > 1:
+                packet_lines.append(
+                    "Each Claim must be answered explicitly using only its listed evidence."
+                )
+                claim_evidence_text = "\n".join(packet_lines)
+
+        qtype = state.question_type
+        if state.stop_reason in ("COMPLETE", "COMPLETE_AFTER_RETOOL"):
+            guide = (
+                f"问题类型：{qtype}。\n\n"
+                "## 回答要求（逐项检查）\n"
+                "对下面「Slots 状态」中每个「已确认」的项，都必须在回答中用至少一句话覆盖，"
+                "并引用对应的证据编号。不得跳过任何已确认的 slot。\n\n"
+                "格式：每个事实句必须引用证据编号，如 [ev_1]。"
+                "不要编造证据中没有的事实。"
+            )
+        else:
+            guide = (
+                f"问题类型：{qtype}。\n\n"
+                "## 回答要求（逐项检查）\n"
+                "对下面「Slots 状态」中每个「已确认」的项，都必须在回答中用至少一句话覆盖，"
+                "并引用对应的证据编号。\n"
+                "对于标 ⚠ 的缺失项，在回答末尾标注「尚待确认：...」说明具体缺口。\n\n"
+                "格式：每个事实句必须引用证据编号，如 [ev_1]。"
+                "不要编造证据中没有的事实。"
+            )
+
+        prompt_parts = [f"原始问题：{question}\n"]
+        if relation_guide:
+            prompt_parts.append(f"关系指南：{relation_guide}\n")
+        prompt_parts.extend([
+            context,
+            "",
+            f"## Slots 状态\n{checklist_text}",
+        ])
+        if claims_checklist_text:
+            prompt_parts.extend(["", claims_checklist_text])
+        if claim_evidence_text:
+            prompt_parts.extend(["", claim_evidence_text])
+        prompt_parts.extend(["", guide])
+        prompt = "\n".join(prompt_parts)
+        try:
+            raw = (self.call_llm(
+                prompt, system="你是严格证据约束的代码调查答复器。对每个已确认 slot 必须给出回答。",
+                temperature=0, max_tokens=1000, **_LLM_CALL_KWARGS) or "").strip()
+        except Exception:
+            raw = ""
+
+        if not raw:
+            # LLM unavailable — deterministic slot-by-slot summary
+            lines = [f"问题：{question}\n"]
+            for tid, target in targets.items():
+                lines.append(f"\n## {target.symbol}")
+                for slot_kind in target.required_slots:
+                    verified = target.verified_slots.get(slot_kind, [])
+                    ev_slot = target.evidence_by_slot.get(slot_kind, [])
+                    all_eids = list(set(verified + ev_slot))
+                    label = _SLOT_CN.get(slot_kind, slot_kind.value)
+                    if all_eids:
+                        for eid in all_eids[:3]:
+                            ev = ev_by_id.get(eid)
+                            if ev and ev.location:
+                                lines.append(
+                                    f"  [{label}] {ev.location.file}:{ev.location.start_line} "
+                                    f"— {(ev.snippet or '')[:200]}")
+                    else:
+                        lines.append(f"  [{label}] 尚待确认")
+            return InvestigationResult(
+                question=question, evidence=evidence,
+                answer="\n".join(lines),
+                trace=list(state.traces), steps=list(state.steps),
+                files_visited=sorted({
+                    ev.location.file for ev in evidence if ev.location
+                }),
+            )
+
+        # Split into sentences; keep only those that cite evidence
+        sentences = re.split(r"(?<=[。！？\n])", raw)
+        grounded: list[str] = []
+        for sent in sentences:
+            refs = set(re.findall(r"\[(ev_\w+)\]", sent))
+            if refs & ev_by_id.keys():
+                for rid in refs:
+                    if rid in ev_by_id:
+                        loc = ev_by_id[rid].location
+                        sent = sent.replace(
+                            f"[{rid}]", f"{loc.file}:{loc.start_line}")
+                grounded.append(sent)
+
+        if grounded:
+            final_answer = "".join(grounded)
+        else:
+            final_answer = "\n".join(
+                f"- {ev.location.file}:{ev.location.start_line} — {ev.snippet[:240]}"
+                for ev in evidence if ev.location)
+
+        # ── 覆盖检查：确保所有 slot 证据都被引用 ───────────────────────
+        cited_files_lines: set[tuple[str, int]] = set()
+        for m in re.finditer(r"([\w./-]+\.[\w]+):(\d+)", final_answer, re.ASCII):
+            cited_files_lines.add((m.group(1), int(m.group(2))))
+
+        missing_ev: list[Evidence] = []
+        for eid, ev in all_slot_ev_refs.items():
+            if ev.location:
+                key = (ev.location.file, ev.location.start_line)
+                if key not in cited_files_lines:
+                    missing_ev.append(ev)
+
+        if missing_ev:
+            supplement = ["\n\n## 补充证据（答案未覆盖的已验证证据）"]
+            by_file_missing: dict[str, list[Evidence]] = {}
+            for ev in missing_ev:
+                by_file_missing.setdefault(ev.location.file, []).append(ev)
+            for fname in sorted(by_file_missing.keys()):
+                supplement.append(f"\n### {fname}")
+                for ev in by_file_missing[fname][:8]:  # 每个文件最多8条补充
+                    snippet_preview = (ev.snippet or "").replace("\n", " ")[:200]
+                    supplement.append(
+                        f"  - L{ev.location.start_line}: {snippet_preview}")
+            final_answer += "\n".join(supplement)
+
+        return InvestigationResult(
+            question=question, evidence=evidence,
+            answer=final_answer,
+            trace=list(state.traces), steps=list(state.steps),
+            files_visited=sorted({
+                ev.location.file for ev in evidence if ev.location
+            }),
+        )
+
+    # ── grep 确定性合成 ─────────────────────────────────────────────
+
+    @staticmethod
+    def _synthesize_grep(question: str, state: ExplorationState,
+                         evidence: list[Evidence],
+                         ev_by_id: dict[str, Evidence],
+                         targets: dict) -> InvestigationResult:
+        """grep/enumerate 类型：确定性全量输出，不依赖 LLM 挑选子集。
+
+        流程：
+        1. 收集所有 verified evidence（CANDIDATE_REFERENCE slot）
+        2. 按 file + line 去重
+        3. 按文件分组，全部输出
+        """
+        # 收集所有 CANDIDATE_REFERENCE evidence
+        seen: set[tuple[str, int]] = set()
+        by_file: dict[str, list[tuple[int, str, str]]] = {}  # file → [(line, ev_id, snippet)]
+
+        for tid, target in targets.items():
+            all_eids = list(set(
+                target.verified_slots.get(SlotKind.CANDIDATE_REFERENCE, []) +
+                target.evidence_by_slot.get(SlotKind.CANDIDATE_REFERENCE, [])
+            ))
+            for eid in all_eids:
+                ev = ev_by_id.get(eid)
+                if not ev or not ev.location:
+                    continue
+                key = (ev.location.file, ev.location.start_line)
+                if key in seen:
+                    continue
+                seen.add(key)
+                by_file.setdefault(ev.location.file, []).append(
+                    (ev.location.start_line, eid, (ev.snippet or "")[:200])
+                )
+
+        # 按文件分组输出
+        lines = [f"问题：{question}\n"]
+        total_hits = sum(len(v) for v in by_file.values())
+        lines.append(f"共 {len(by_file)} 个文件，{total_hits} 处匹配：\n")
+
+        for fname in sorted(by_file.keys()):
+            entries = sorted(by_file[fname], key=lambda x: x[0])
+            lines.append(f"\n## {fname}（{len(entries)} 处）")
+            for line_no, eid, snippet in entries:
+                snippet_clean = snippet.replace("\n", " ").strip()[:150]
+                lines.append(f"  - L{line_no}: {snippet_clean}")
+
+        answer = "\n".join(lines)
+        return InvestigationResult(
+            question=question, evidence=evidence,
+            answer=answer,
+            trace=list(state.traces), steps=list(state.steps),
+            files_visited=sorted({
+                ev.location.file for ev in evidence if ev.location
+            }),
+        )
+
+    # ── V22 诊断字段填充 ────────────────────────────────────────────
+
+    def _populate_v22_diagnostics(self, result: InvestigationResult,
+                                   state: ExplorationState) -> None:
+        """从 ExplorationState 提取 V22 诊断信息到 result。"""
+        # 任务摘要
+        result.planned_tasks = [
+            {"id": t.id, "target": t.target,
+             "slots": [s.value for s in (t.required_slots or set())],
+             "role": t.role, "subtree_depth": t.subtree_depth,
+             "concept": t.concept}
+            for t in state.all_tasks
+            if t.role in (TaskRole.ROOT, TaskRole.REQUIRED)
+        ]
+        result.all_tasks = [
+            {"id": t.id, "target": t.target,
+             "slots": [s.value for s in (t.required_slots or set())],
+             "role": t.role, "subtree_depth": t.subtree_depth}
+            for t in state.all_tasks
+        ]
+
+        # work_orders — 从 steps 中提取
+        result.work_orders = [
+            {"tool": s.get("tool", ""), "target": s.get("target", ""),
+             "action": s.get("action", ""), "outcome": s.get("outcome", ""),
+             "evidence_count": s.get("evidence_count", 0)}
+            for s in state.steps
+        ]
+
+        # 证据摘要
+        result.verified_evidence_summary = {
+            tid: [ev.id for ev in ev_list]
+            for tid, ev_list in state.verified_evidence.items()
+        }
+        result.candidate_evidence_count = {
+            tid: len(ev_list)
+            for tid, ev_list in state.candidate_evidence.items()
+        }
+
+        # slot 状态 — 从 targets 提取（先填充 verified_slots）
+        required_tasks = [t for t in state.all_tasks
+                         if t.role in (TaskRole.ROOT, TaskRole.REQUIRED,
+                                       TaskRole.GAP, TaskRole.RETOOL)]
+        targets = targets_from_tasks(required_tasks, state.question_type)
+        self._populate_target_slots(state, targets)
+        for tid, target in targets.items():
+            req_names = [s.name for s in target.required_slots]
+            closed_names = [s.name for s in target.required_slots
+                           if target.verified_slots.get(s)]
+            open_names = [s.name for s in target.required_slots
+                         if not target.verified_slots.get(s)]
+            result.required_slots[tid] = req_names
+            result.closed_slots[tid] = closed_names
+            result.open_slots[tid] = open_names
+
+        # 合同判定 + 终止原因
+        result.contract_met_before = state.contract_met_before
+        result.contract_met_after = (
+            state.contract_met_after_gap or state.contract_met_after_retool
+        )
+        result.final_contract_met = state.final_contract_met
+        result.stop_reason = state.stop_reason
+        result.retool_triggered = state.retool_used
+
+        # ── V23 Claims 诊断 ──────────────────────────────────────────
+        result.required_claims = list(state.required_claims)
+        result.covered_claims = sorted(
+            set(range(len(state.required_claims))) - set(state.uncovered_claims)
+        )
+        result.uncovered_claims = list(state.uncovered_claims)
+        total_claims = len(state.required_claims)
+        if total_claims > 0:
+            result.claim_coverage_rate = len(result.covered_claims) / total_claims
+        else:
+            result.claim_coverage_rate = 1.0 if total_claims == 0 else 0.0
+
+    # ── 关键词提取 ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _extract_keywords(question: str) -> list[TargetSpec]:
+        quoted = re.findall(r'["\']([^"\']+)["\']', question)
+        if quoted:
+            result: list[TargetSpec] = []
+            seen: set[str] = set()
+            for value in quoted:
+                spec = _normalize_search_keyword(value)
+                if spec and spec.qualified_symbol not in seen:
+                    result.append(spec)
+                    seen.add(spec.qualified_symbol)
+                    if len(result) >= 3:
+                        return result
+            if result:
+                return result
+        qualified = re.findall(
+            r'\b([A-Z][a-zA-Z0-9_]*\.[a-z_][a-zA-Z0-9_]*)\b', question)
+        if qualified:
+            result: list[TargetSpec] = []
+            seen: set[str] = set()
+            for value in qualified:
+                spec = _normalize_search_keyword(value)
+                if spec and spec.qualified_symbol not in seen:
+                    result.append(spec)
+                    seen.add(spec.qualified_symbol)
+                    if len(result) >= 3:
+                        return result
+            if result:
+                return result
+        identifiers = re.findall(
+            r'\b([A-Z][a-zA-Z0-9_]*|[a-z]+_[a-z_]+|[a-z][a-z0-9_]{2,})\b',
+            question)
+        if identifiers:
+            result: list[TargetSpec] = []
+            seen: set[str] = set()
+            for value in identifiers:
+                spec = _normalize_search_keyword(value)
+                if spec and spec.qualified_symbol not in seen:
+                    result.append(spec)
+                    seen.add(spec.qualified_symbol)
+                    if len(result) >= 3:
+                        return result
+            if result:
+                return result
+        words = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]{2,}', question)
+        result: list[TargetSpec] = []
+        seen: set[str] = set()
+        for value in words:
+            spec = _normalize_search_keyword(value)
+            if spec and spec.qualified_symbol not in seen:
+                result.append(spec)
+                seen.add(spec.qualified_symbol)
+                if len(result) >= 3:
+                    return result
+        return result
+
+    # ── 辅助方法 ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _extract_claims_from_answer(answer: str,
+                                     evidence: list[Evidence]) -> list[ClaimCitation]:
+        if not answer:
+            return []
+        citations = re.findall(r"([\w./-]+\.[\w]+):(\d+)", answer)
+        if not citations:
+            return []
+        loc_to_id: dict[tuple[str, str], str] = {}
+        for ev in evidence:
+            if ev.location and ev.location.file:
+                loc_to_id[(ev.location.file, str(ev.location.start_line))] = ev.id
+        claims: list[ClaimCitation] = []
+        seen: set[str] = set()
+        for file, line in citations:
+            ev_id = loc_to_id.get((file, line), "")
+            if ev_id and ev_id not in seen:
+                claims.append(ClaimCitation(
+                    text=f"reference to {file}:{line}",
+                    evidence_ids=[ev_id],
+                ))
+                seen.add(ev_id)
+        return claims
+
+    @staticmethod
+    def _rank_context_files(files, evidence: list, keywords: list) -> list[str]:
+        hits: dict[str, int] = {}
+        snippets: dict[str, list[str]] = {}
+        for ev in evidence:
+            if ev.location and ev.location.file:
+                fname = ev.location.file
+                hits[fname] = hits.get(fname, 0) + 1
+                if ev.snippet:
+                    snippets.setdefault(fname, []).append(ev.snippet)
+        kw_strs = [kw.member_symbol if isinstance(kw, TargetSpec) else str(kw)
+                   for kw in keywords if kw]
+        def_pats = [re.compile(rf"\b(?:class|def)\s+{re.escape(kw)}\b", re.IGNORECASE)
+                    for kw in kw_strs]
+
+        def is_low_priority(fname: str) -> bool:
+            segs = fname.replace("\\", "/").split("/")[:-1]
+            return any(seg in _LOW_PRIORITY_CONTEXT_DIRS for seg in segs)
+
+        def has_definition(fname: str) -> bool:
+            return any(p.search(s) for s in snippets.get(fname, ()) for p in def_pats)
+
+        return sorted(files, key=lambda f: (
+            is_low_priority(f), not has_definition(f), -hits.get(f, 0), f))
+
+    @staticmethod
+    def _find_definition_lines(content: str, keywords: list, limit: int = 5) -> list[int]:
+        if not keywords:
+            return []
+        kw_strs = [kw.member_symbol if isinstance(kw, TargetSpec) else str(kw)
+                   for kw in keywords if kw]
+        pats = [re.compile(rf"^\s*(?:class|def|async\s+def|function)\s+{re.escape(kw)}\b",
+                           re.IGNORECASE)
+                for kw in kw_strs]
+        out: list[int] = []
+        for i, line in enumerate(content.splitlines(), 1):
+            if any(p.match(line) for p in pats):
+                out.append(i)
+                if len(out) >= limit:
+                    break
+        return out
+
+    @staticmethod
+    def _extract_windows(content: str, hit_lines: list[int], radius: int = 30,
+                         max_windows: int = 3,
+                         priority_lines: list[int] | None = None) -> str:
+        lines = content.splitlines()
+        total = len(lines)
+        weights: dict[int, int] = {}
+        for l in hit_lines or []:
+            if isinstance(l, int) and 1 <= l <= total:
+                weights[l] = max(weights.get(l, 0), 1)
+        for l in priority_lines or []:
+            if isinstance(l, int) and 1 <= l <= total:
+                weights[l] = 4
+        if not weights:
+            return ""
+        intervals: list[list[int]] = []
+        for l in sorted(weights):
+            s, e = max(1, l - radius), min(total, l + radius)
+            if intervals and s <= intervals[-1][1] + 1:
+                intervals[-1][1] = max(intervals[-1][1], e)
+                intervals[-1][2] += weights[l]
+            else:
+                intervals.append([s, e, weights[l]])
+        if len(intervals) > max_windows:
+            intervals = sorted(intervals, key=lambda iv: (-iv[2], iv[0]))[:max_windows]
+            intervals.sort(key=lambda iv: iv[0])
+        parts = []
+        for s, e, _ in intervals:
+            parts.append("\n".join(f"{i:>5}| {lines[i - 1]}" for i in range(s, e + 1)))
+        return "\n  ...\n".join(parts)
+
+    @staticmethod
+    def _select_synthesis_evidence(evidence: list, max_items: int = 20,
+                                   per_file_cap: int = 3) -> list:
+        ranked = sorted(evidence, key=lambda e: -e.confidence)
+        selected: list = []
+        overflow: list = []
+        per_file: dict[str, int] = {}
+        for ev in ranked:
+            fname = ev.location.file if ev.location else ""
+            if per_file.get(fname, 0) >= per_file_cap:
+                overflow.append(ev)
+                continue
+            selected.append(ev)
+            per_file[fname] = per_file.get(fname, 0) + 1
+            if len(selected) >= max_items:
+                return selected
+        for ev in overflow:
+            if len(selected) >= max_items:
+                break
+            selected.append(ev)
+        return selected
+
+    @staticmethod
+    def _fallback_answer(question: str, evidence_lines: list[str]) -> str:
+        parts = ["（LLM 不可用，以下为调查结果摘要）\n"]
+        parts.append(f"问题: {question}")
+        if evidence_lines:
+            parts.append("\n关键证据:")
+            parts.extend(f"- {line}" for line in evidence_lines[:10])
+        return "\n".join(parts)
+
+    @staticmethod
+    def _new_investigation_id(question: str) -> str:
+        raw = f"{question}|{time.time()}|{uuid.uuid4().hex[:6]}"
+        return "inv_" + hashlib.md5(raw.encode()).hexdigest()[:12]
+
+    @staticmethod
+    def _read_python_files(repo_path: str, files_visited: set,
+                           files_read: int, files_max: int) -> list[tuple[str, str]]:
+        remaining = files_max - files_read
+        py_files = [f for f in files_visited if f.endswith(".py")][:min(10, remaining)]
+        if not py_files:
+            return []
+        files: list[tuple[str, str]] = []
+        workspace = WorkspaceManager()
+        try:
+            for fpath in py_files:
+                try:
+                    content = workspace.read_file_at_ref(repo_path, "HEAD", fpath)
+                    files.append((fpath, content))
+                except ValueError:
+                    continue
+        except Exception:
+            pass
+        return files
+
+    @staticmethod
+    def _estimate_tokens(char_count: int) -> int:
+        return max(1, char_count // 4)
 
     @staticmethod
     def _match_existing_evidence(session: dict, question: str,
-                                 keywords: list[str]) -> list[str]:
-        """在已有证据中搜索与新问题关键词匹配的条目，返回引用列表。"""
+                                 keywords: list) -> list[str]:
         refs: list[str] = []
-        kw_lower = {k.lower() for k in keywords}
+        kw_lower = {k.member_symbol.lower() if isinstance(k, TargetSpec) else str(k).lower()
+                     for k in keywords}
         for ev_dict in session.get("evidence", []):
             snippet = (ev_dict.get("snippet", "") or "").lower()
             source = (ev_dict.get("source", "") or "").lower()
@@ -385,592 +1361,3 @@ class InvestigationAgent:
                 loc_str = f"{loc.get('file', '?')}:{loc.get('start_line', 0)}"
                 refs.append(f"[{ev_dict.get('source', '?')}] {loc_str}")
         return refs
-
-    # ---- 状态恢复 ---------------------------------------------------------
-
-    @staticmethod
-    def _restore_state(session: dict, new_question: str) -> "InvestigationState":
-        """从持久化会话恢复 InvestigationState，保留已有证据。"""
-        evidence = [Evidence.from_dict(e) for e in session.get("evidence", [])]
-        state = InvestigationState(
-            question=new_question,
-            goal=_classify(new_question),
-            keywords=list(session.get("keywords", [])),
-            hypotheses=list(session.get("hypotheses", [])),
-            confirmed=list(session.get("confirmed", [])),
-            evidence=evidence,
-            files_visited=set(session.get("files_visited", [])),
-            trace=list(session.get("trace", [])),
-            files_read=session.get("files_read", 0),
-            tokens_used=session.get("tokens_used", 0),
-        )
-        # 恢复之前的步骤记录
-        for s in session.get("steps", []):
-            state.steps.append(StepRecord(
-                step=s.get("step", 0),
-                tool=s.get("tool", ""),
-                params=s.get("params", {}),
-                status=s.get("status", "success"),
-                evidence_count=s.get("evidence_count", 0),
-                hypothesis_after=s.get("hypothesis_after", ""),
-                decision=s.get("decision", ""),
-                budget_reason=s.get("budget_reason", ""),
-                duration_ms=s.get("duration_ms", 0),
-            ))
-        return state
-
-    # ---- 答案合成（续问专用）-----------------------------------------------
-
-    def _synthesize_follow_up(self, result: InvestigationResult,
-                              session: dict, question: str,
-                              matched_refs: list[str],
-                              repo_path: str, t0: float) -> InvestigationResult:
-        """基于已有证据直接合成续问答案，带跨轮引用。"""
-        sys_prompt = (
-            "你是一个代码库调查助手。用户正在对之前的调查进行追问。"
-            "以下证据来自上一轮调查，请直接基于这些证据回答用户的新问题。"
-            "回答必须引用具体文件路径和行号。如果已有证据不足以回答，请明确说明。"
-            "在回答末尾标注引用了上一轮的哪几条证据。用中文回答。"
-        )
-
-        evidence_text = "\n".join(
-            f"[ref{i+1}] {ref}" for i, ref in enumerate(matched_refs[:10])
-        )
-
-        user_prompt = f"""## 新问题（续问）
-{question}
-
-## 上一轮问题
-{session.get('question', '')}
-
-## 已有证据（{len(matched_refs)} 条匹配）
-{evidence_text}
-
-请基于以上已有证据回答新问题。回答末尾列出引用的证据引用编号。"""
-
-        try:
-            answer = self.call_llm(user_prompt, system=sys_prompt, temperature=0.3, max_tokens=1200)
-            result.answer = answer.strip()
-        except Exception:
-            result.answer = (
-                f"（LLM 不可用）基于已有 {len(matched_refs)} 条证据回答：\n\n"
-                + "\n".join(f"- {ref}" for ref in matched_refs[:10])
-            )
-
-        result.evidence = [Evidence.from_dict(e) for e in session.get("evidence", [])]
-        result.trace = [f"follow_up: reused {len(matched_refs)} evidence refs, 0 new tool calls"]
-        result.steps = []
-        result.duration_ms = (time.perf_counter() - t0) * 1000
-        return result
-
-    # ---- 预算检查 ----------------------------------------------------------
-
-    @staticmethod
-    def _check_budget(state: "InvestigationState") -> str:
-        if state.steps_remaining <= 0:
-            return "steps"
-        if state.is_files_exhausted:
-            return "files"
-        if state.is_token_exhausted:
-            return "tokens"
-        return ""
-
-    # ---- 状态初始化 -------------------------------------------------------
-
-    @staticmethod
-    def _seed_hypotheses(state: "InvestigationState") -> None:
-        kw_str = "、".join(state.keywords)
-        template = _HYPOTHESIS_TEMPLATES.get(state.goal, _HYPOTHESIS_TEMPLATES["locate"])
-        state.hypotheses.append(template.format(kw=kw_str))
-
-    # ---- 工具选择 ----------------------------------------------------------
-
-    def _select_next_tool(self, state: "InvestigationState") -> str | None:
-        used = {s.tool for s in state.steps}
-        candidates = list(_TOOL_PRIORITY.get(state.goal, ["search"]))
-        candidates = [t for t in candidates if t not in used]
-
-        if not state.files_visited and "search" not in used:
-            return "search"
-
-        # grep 未命中不等于“仓库无证据”。先做确定性的文件名恢复，
-        # 再允许 NO_EVIDENCE 终止，避免低质量首次调查拖累续问复用。
-        if (state.steps and state.steps[-1].tool == "search"
-                and state.steps[-1].evidence_count == 0
-                and "search_filename" in candidates):
-            return "search_filename"
-
-        # 文件名搜索仅是 grep 无命中的恢复路径，不应在已有内容证据后
-        # 额外消耗一步或干扰后续 AST/依赖分析。
-        candidates = [t for t in candidates if t != "search_filename"]
-
-        candidates = [t for t in candidates if not self._is_duplicate(state, t)]
-
-        if state.steps:
-            candidates = self._correlate_candidates(state, candidates)
-
-        if not candidates:
-            return None
-        if len(candidates) == 1:
-            return candidates[0]
-        return self._llm_rank_tools(state, candidates)
-
-    # ---- 跨工具关联 -------------------------------------------------------
-
-    @staticmethod
-    def _correlate_candidates(state: "InvestigationState",
-                              candidates: list[str]) -> list[str]:
-        last = state.steps[-1]
-        if last.status == "failed" or last.evidence_count == 0:
-            return candidates
-
-        if last.tool == "search":
-            py_count = sum(1 for f in state.files_visited if f.endswith(".py"))
-            if py_count > 0 and "python_ast" in candidates:
-                candidates.remove("python_ast")
-                candidates.insert(0, "python_ast")
-        elif last.tool == "python_ast":
-            has_hits = any(
-                kw.lower() in f for kw in state.keywords
-                for f in state.files_visited
-            )
-            if has_hits and "dependency" in candidates:
-                candidates.remove("dependency")
-                candidates.insert(0, "dependency")
-        elif last.tool == "dependency":
-            if last.evidence_count > 0 and "knowledge" in candidates:
-                candidates.remove("knowledge")
-                candidates.insert(0, "knowledge")
-
-        return candidates
-
-    # ---- LLM 辅助排序 -----------------------------------------------------
-
-    def _llm_rank_tools(self, state: "InvestigationState",
-                        candidates: list[str]) -> str:
-        if len(candidates) <= 1:
-            return candidates[0]
-
-        tool_descriptions = {
-            "search": "搜索代码库中的关键词/模式",
-            "python_ast": "分析 Python 文件的结构（函数、类、调用关系）",
-            "dependency": "分析 import 和依赖清单变更",
-            "git": "查看最近的 git 变更历史",
-            "knowledge": "检索安全规范/最佳实践知识库",
-        }
-        candidate_desc = "\n".join(
-            f"- {t}: {tool_descriptions.get(t, t)}" for t in candidates
-        )
-
-        prompt = (
-            f"问题：{state.question}\n"
-            f"当前已确认：{', '.join(state.confirmed) if state.confirmed else '无'}\n"
-            f"待验证假设：{state.hypotheses[0] if state.hypotheses else '无'}\n"
-            f"已访问文件：{len(state.files_visited)} 个\n"
-            f"可用工具：\n{candidate_desc}\n\n"
-            f"请选择下一步最应该使用哪个工具。只输出工具名（不含引号）。"
-        )
-
-        try:
-            choice = self.call_llm(prompt, system="你是一个代码调查策略助手。", temperature=0, max_tokens=20)
-            choice = choice.strip().strip('"').strip("'")
-            if choice in candidates:
-                return choice
-        except Exception:
-            pass
-
-        return candidates[0]
-
-    # ---- 去重辅助 ---------------------------------------------------------
-
-    @staticmethod
-    def _is_duplicate(state: "InvestigationState", tool_name: str) -> bool:
-        if tool_name not in _DEDUP_KEYS:
-            return False
-        key_fields = _DEDUP_KEYS[tool_name]({})
-        current_fp = _hash_params(tool_name, state, key_fields)
-        for prev in state.steps:
-            if prev.tool != tool_name:
-                continue
-            prev_fp = _hash_params(tool_name, state, key_fields)
-            if prev_fp == current_fp:
-                return True
-        return False
-
-    # ---- 工具执行 ---------------------------------------------------------
-
-    def _execute_step(self, repo_path: str, state: "InvestigationState",
-                      tool_name: str) -> StepRecord:
-        t0 = time.perf_counter()
-        hypothesis_before = state.hypotheses[0] if state.hypotheses else ""
-        step = StepRecord(
-            step=len(state.steps) + 1,
-            tool=tool_name,
-            hypothesis_before=hypothesis_before,
-        )
-
-        try:
-            if tool_name in ("search", "search_filename"):
-                search_type = "filename" if tool_name == "search_filename" else "grep"
-                step.params = {"repo_path": repo_path, "query": state.keywords,
-                               "search_type": search_type, "max_results": 50}
-                result = SearchTool().execute(ToolRequest(tool="search", params=step.params))
-                self._ingest_search_result(state, result)
-
-            elif tool_name == "python_ast":
-                py_files = self._read_python_files(repo_path, state)
-                step.params = {"file_count": len(py_files)}
-                if not py_files:
-                    step.status = "failed"
-                    step.decision = "NO_EVIDENCE"
-                    step.duration_ms = (time.perf_counter() - t0) * 1000
-                    return step
-                total_chars = sum(len(src) for _, src in py_files)
-                state.files_read += len(py_files)
-                state.tokens_used += self._estimate_tokens(total_chars)
-                result = ASTTool().execute(ToolRequest(
-                    tool="python_ast", params={"files": py_files},
-                ))
-                self._ingest_ast_result(state, result)
-
-            elif tool_name == "dependency":
-                py_files = self._read_python_files(repo_path, state)
-                step.params = {"file_count": len(py_files),
-                               "changed_files": len(state.files_visited)}
-                total_chars = sum(len(src) for _, src in py_files)
-                state.files_read += len(py_files)
-                state.tokens_used += self._estimate_tokens(total_chars)
-                result = DependencyTool().execute(ToolRequest(
-                    tool="dependency", params={
-                        "files": py_files,
-                        "changed_files": list(state.files_visited),
-                    },
-                ))
-
-            elif tool_name == "git":
-                step.params = {"repo_path": repo_path, "base_ref": "HEAD~5", "head_ref": "HEAD"}
-                result = GitTool().execute(ToolRequest(tool="git", params=step.params))
-
-            elif tool_name == "knowledge":
-                kw_str = " ".join(state.keywords)
-                entries = StaticKnowledge().retrieve(kw_str, top_k=5)
-                step.params = {"query": kw_str, "top_k": 5}
-                result = None
-                for entry in entries:
-                    state.evidence.append(Evidence(
-                        kind="knowledge", source=entry.get("source", "static_knowledge"),
-                        location=CodeLocation(file="(knowledge)", start_line=0),
-                        snippet=entry.get("content", ""),
-                        confidence=0.7,
-                    ))
-
-            else:
-                step.status = "failed"
-                step.duration_ms = (time.perf_counter() - t0) * 1000
-                return step
-
-            if tool_name != "knowledge":
-                step.status = result.status if result else "success"
-                step.evidence_count = len(result.evidence) if result else len(entries)
-                if result and result.evidence:
-                    state.evidence.extend(result.evidence)
-                    ev_chars = sum(len(ev.snippet or "") for ev in result.evidence)
-                    state.tokens_used += self._estimate_tokens(ev_chars)
-
-        except Exception as exc:
-            step.status = "failed"
-            state.trace.append(f"tool_error: {tool_name}: {exc}")
-
-        step.duration_ms = (time.perf_counter() - t0) * 1000
-        return step
-
-    # ---- 证据摄取 ---------------------------------------------------------
-
-    @staticmethod
-    def _ingest_search_result(state: "InvestigationState", result) -> None:
-        matches = result.artifacts.get("matches", [])
-        for m in matches[:50]:
-            fpath = m.get("file", "")
-            if fpath:
-                state.files_visited.add(fpath)
-
-    @staticmethod
-    def _ingest_ast_result(state: "InvestigationState", result) -> None:
-        symbols = result.artifacts.get("symbol_index", [])
-        keywords_lower = {k.lower() for k in state.keywords}
-        for sym in symbols:
-            name = sym.get("name", "")
-            calls = sym.get("calls", [])
-            if any(kw in name.lower() or any(kw in call.lower() for call in calls)
-                   for kw in keywords_lower):
-                loc = sym.get("location", {})
-                fpath = loc.get("file", "")
-                if fpath:
-                    state.files_visited.add(fpath)
-
-    # ---- 假设更新 ---------------------------------------------------------
-
-    @staticmethod
-    def _update_hypotheses(state: "InvestigationState", step: StepRecord) -> None:
-        if step.evidence_count > 0 and state.hypotheses:
-            confirmed = state.hypotheses.pop(0)
-            state.confirmed.append(confirmed)
-
-            kw_str = "、".join(state.keywords)
-            if step.tool == "search" and state.files_visited:
-                py_files = [f for f in state.files_visited if f.endswith(".py")]
-                if py_files and state.goal in ("locate", "explain", "trace", "impact"):
-                    state.hypotheses.append(
-                        f"文件 {', '.join(sorted(py_files)[:3])} 中包含相关符号，"
-                        f"需通过 AST 分析代码结构"
-                    )
-                elif state.goal == "trace":
-                    state.hypotheses.append(f"需追踪 {kw_str} 的调用者和被调用者")
-            elif step.tool == "python_ast" and state.goal in ("trace", "impact"):
-                state.hypotheses.append(
-                    f"已分析 {kw_str} 的结构，需追踪其依赖链和影响范围"
-                )
-            elif step.tool == "dependency" and state.goal in ("trace", "impact"):
-                state.hypotheses.append(
-                    f"已分析 {kw_str} 的依赖关系，汇总影响范围"
-                )
-        elif step.evidence_count == 0 and state.hypotheses:
-            pass
-
-        step.hypothesis_after = state.hypotheses[0] if state.hypotheses else "(无待验证假设)"
-
-    # ---- 决策评估 ---------------------------------------------------------
-
-    @staticmethod
-    def _evaluate(state: "InvestigationState", step: StepRecord) -> tuple[str, str]:
-        if (step.tool == "search" and step.evidence_count == 0
-                and not any(s.tool == "search_filename" for s in state.steps)):
-            return "CONTINUE", ""
-        if step.evidence_count == 0 and step.status != "failed":
-            return "NO_EVIDENCE", ""
-        if state.steps_remaining <= 0:
-            return "BUDGET", "steps"
-        if state.is_files_exhausted:
-            return "BUDGET", "files"
-        if state.is_token_exhausted:
-            return "BUDGET", "tokens"
-        if not state.hypotheses:
-            return "STOP", ""
-        return "CONTINUE", ""
-
-    # ---- 答案合成 ---------------------------------------------------------
-
-    def _synthesize(self, state: "InvestigationState", repo_path: str,
-                    t0: float) -> InvestigationResult:
-        result = InvestigationResult(
-            question=state.question,
-            evidence=state.evidence,
-            files_visited=sorted(state.files_visited)[:20],
-        )
-
-        context_chunks: list[str] = []
-        workspace = None
-        try:
-            workspace = WorkspaceManager().prepare(repo_path, "HEAD")
-            read_limit = min(5, state.files_max - state.files_read)
-            for fpath in list(state.files_visited)[:read_limit]:
-                try:
-                    content = workspace.read_file(fpath)[:3000]
-                    context_chunks.append(f"### {fpath}\n```\n{content}\n```")
-                    state.files_read += 1
-                    state.tokens_used += self._estimate_tokens(len(content))
-                except ValueError:
-                    continue
-        except Exception:
-            pass
-        finally:
-            if workspace:
-                workspace.cleanup()
-
-        evidence_lines: list[str] = []
-        for ev in state.evidence[:30]:
-            loc = ev.location
-            loc_str = f"{loc.file}:{loc.start_line}" if loc else "(无位置)"
-            evidence_lines.append(f"[{ev.source}] {loc_str}: {ev.snippet[:200]}")
-
-        last_step = state.steps[-1] if state.steps else None
-        no_conclusion = (
-            last_step and last_step.decision in ("NO_EVIDENCE", "BUDGET")
-            and len(state.confirmed) == 0
-        )
-
-        sys_prompt = (
-            "你是一个代码库调查助手。根据提供的调查步骤、证据和文件内容，"
-            "回答用户关于代码库的问题。回答必须引用具体的文件路径和行号。"
-            "如果信息不足以得出确定性结论，请明确说明'无法确认'并解释原因。"
-            "用中文回答。"
-        )
-
-        if no_conclusion:
-            reason_map = {
-                "NO_EVIDENCE": "未找到足够证据",
-                "BUDGET": f"调查预算耗尽（{last_step.budget_reason or 'steps'}）",
-            }
-            reason = reason_map.get(last_step.decision, last_step.decision)
-            result.answer = (
-                f"无法确认：{reason}。\n\n"
-                f"已执行步骤：{' → '.join(s.tool for s in state.steps if s.tool != '(blocked)')}\n"
-                f"已确认假设：{len(state.confirmed)} 条\n"
-                f"涉及文件：{len(state.files_visited)} 个\n"
-                f"收集证据：{len(state.evidence)} 条\n"
-                f"资源消耗：{len(state.steps)} 步 / {state.files_read} 文件 / ~{state.tokens_used} tokens"
-            )
-            result.duration_ms = (time.perf_counter() - t0) * 1000
-            return result
-
-        budget_note = ""
-        if state.files_read >= state.files_max * 0.8:
-            budget_note = f"\n（文件预算已用 {state.files_read}/{state.files_max}，结果可能不完整）"
-
-        user_prompt = f"""## 问题
-{state.question}
-
-## 调查步骤
-{chr(10).join(state.trace)}
-
-## 证据（{len(evidence_lines)} 条）
-{chr(10).join(evidence_lines[:20])}
-
-## 相关文件内容
-{chr(10).join(context_chunks) if context_chunks else "(文件内容不可用)"}
-{budget_note}
-
-请根据以上信息回答问题，引用文件路径和行号。"""
-
-        try:
-            answer = self.call_llm(user_prompt, system=sys_prompt, temperature=0.3, max_tokens=1500)
-            result.answer = answer.strip()
-        except Exception:
-            parts = ["（LLM 不可用，以下为调查结果摘要）\n"]
-            parts.append(f"调查目标: {state.goal}")
-            parts.append(f"已确认假设: {len(state.confirmed)} 条")
-            parts.append(f"涉及文件: {len(state.files_visited)} 个")
-            parts.append(f"资源消耗: {len(state.steps)} 步 / {state.files_read} 文件 / ~{state.tokens_used} tokens")
-            if evidence_lines:
-                parts.append("\n关键证据:")
-                parts.extend(f"- {line}" for line in evidence_lines[:10])
-            result.answer = "\n".join(parts)
-
-        result.duration_ms = (time.perf_counter() - t0) * 1000
-        return result
-
-    # ---- ID 生成 ----------------------------------------------------------
-
-    @staticmethod
-    def _new_investigation_id(question: str) -> str:
-        raw = f"{question}|{time.time()}|{uuid.uuid4().hex[:6]}"
-        return "inv_" + hashlib.md5(raw.encode()).hexdigest()[:12]
-
-    # ---- 辅助方法 ---------------------------------------------------------
-
-    @staticmethod
-    def _read_python_files(repo_path: str, state: "InvestigationState") -> list[tuple[str, str]]:
-        remaining = state.files_max - state.files_read
-        py_files = [f for f in state.files_visited if f.endswith(".py")][:min(10, remaining)]
-        if not py_files:
-            return []
-
-        files: list[tuple[str, str]] = []
-        workspace = None
-        try:
-            workspace = WorkspaceManager().prepare(repo_path, "HEAD")
-            for fpath in py_files:
-                try:
-                    content = workspace.read_file(fpath)
-                    files.append((fpath, content))
-                except ValueError:
-                    continue
-        except Exception:
-            pass
-        finally:
-            if workspace:
-                workspace.cleanup()
-        return files
-
-    @staticmethod
-    def _estimate_tokens(char_count: int) -> int:
-        return max(1, char_count // 4)
-
-    @staticmethod
-    def _extract_keywords(question: str) -> list[str]:
-        quoted = re.findall(r'["\']([^"\']+)["\']', question)
-        if quoted:
-            normalized = [_normalize_search_keyword(value) for value in quoted]
-            result = list(dict.fromkeys(value for value in normalized if value))
-            if result:
-                return result[:3]
-
-        identifiers = re.findall(r'\b([A-Z][a-zA-Z0-9_]*|[a-z]+_[a-z_]+)\b', question)
-        if identifiers:
-            identifiers = [_normalize_search_keyword(value) for value in identifiers]
-            identifiers = [value for value in identifiers if value]
-            if identifiers:
-                return list(dict.fromkeys(identifiers))[:3]
-
-        words = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]{2,}', question)
-        normalized = [_normalize_search_keyword(value) for value in words]
-        return list(dict.fromkeys(value for value in normalized if value))[:3]
-
-
-# ---- 调查状态机 ----------------------------------------------------------
-
-@dataclass
-class InvestigationState:
-    """调查状态机 — 贯穿整个调查生命周期（M3: 三维预算 + 持久化）。"""
-    question: str
-    goal: str = "locate"
-    keywords: list[str] = field(default_factory=list)
-    hypotheses: list[str] = field(default_factory=list)
-    confirmed: list[str] = field(default_factory=list)
-    evidence: list[Evidence] = field(default_factory=list)
-    steps: list[StepRecord] = field(default_factory=list)
-    files_visited: set[str] = field(default_factory=set)
-    trace: list[str] = field(default_factory=list)
-
-    steps_max: int = 6
-    files_max: int = 50
-    token_budget: int = 16000
-    files_read: int = 0
-    tokens_used: int = 0
-
-    @property
-    def steps_remaining(self) -> int:
-        return self.steps_max - len(self.steps)
-
-    @property
-    def is_files_exhausted(self) -> bool:
-        return self.files_read >= self.files_max
-
-    @property
-    def is_token_exhausted(self) -> bool:
-        return self.tokens_used >= self.token_budget
-
-    @property
-    def is_budget_exhausted(self) -> bool:
-        return (len(self.steps) >= self.steps_max
-                or self.is_files_exhausted
-                or self.is_token_exhausted)
-
-
-# ---- 参数哈希 ------------------------------------------------------------
-
-def _hash_params(tool_name: str, state: "InvestigationState", key_fields: tuple) -> str:
-    raw = tool_name
-    for field in key_fields:
-        if field == "query":
-            raw += "|" + ",".join(sorted(state.keywords))
-        elif field == "search_type":
-            raw += "|grep"
-        elif field == "files":
-            py_files = sorted(f for f in state.files_visited if f.endswith(".py"))
-            raw += "|" + ",".join(py_files[:10])
-        elif field == "base_ref":
-            raw += "|HEAD~5"
-        elif field == "head_ref":
-            raw += "|HEAD"
-    return hashlib.md5(raw.encode()).hexdigest()[:12]

@@ -1,8 +1,43 @@
 # V1 计划任务跟踪表
 
-对照 `_PLAN/AI Code Review Platform — V1 完整任务计划书.md` 逐项跟踪完成状态。更新日期：2026-07-18。
+对照 `_PLAN/AI Code Review Platform — V1 完整任务计划书.md` 逐项跟踪完成状态。更新日期：2026-07-21。
 
-**当前状态定义：核心 Review 产品已完成且可展示；进入 V1 收尾与 V1.1 Agent 增强阶段。**
+**当前状态定义：V22 Task 驱动探查架构已实现；待编写新测试 + 集成 + 外部评测回归。**
+
+## V22 Task 驱动探查（2026-07-21）
+
+| 改动 | 状态 | 说明 |
+|------|------|------|
+| InvestigationTask 增加 role/subtree_depth/strategy_override 等 8 字段 | ✅ | `app/models/target.py` |
+| ExplorationState（三阶段独立预算 + 任务树 + 证据可信链） | ✅ | `app/agent/task_explorer.py` |
+| ToolExecutor（从 EvidenceClosureEngine 提取工具执行） | ✅ | `app/agent/task_explorer.py` |
+| fill_work_orders / _deterministic_work_orders | ✅ | `app/agent/task_explorer.py` |
+| discover_tasks（从 verified evidence 动态发现） | ✅ | `app/agent/task_explorer.py` |
+| gap_analyzer / _deterministic_gap_fill / _GAP_STRATEGIES | ✅ | `app/agent/task_explorer.py` |
+| _execute_task / _execute_task_subtree | ✅ | `app/agent/task_explorer.py` |
+| EvidenceClosureEngine 删除（~725 行），保留核心类型 | ✅ | `app/agent/evidence_closure.py` |
+| Investigator 6 阶段主流程重写（~3200→~700 行） | ✅ | `app/agent/investigator.py` |
+| InvestigationState 删除 + ~25 legacy 方法清理 | ✅ | `app/agent/investigator.py` |
+| __init__.py 适配 V22 导出 | ✅ | `app/agent/__init__.py` |
+| test_agent.py 适配（69 passed） | ✅ | `tests/test_agent.py` |
+| test_evidence_closure.py 跳过标志（85 skipped） | ✅ | `tests/test_evidence_closure.py` |
+| **task_explorer.py 单元测试（88 条）** | ✅ | 预算(9)+调度(7)+去重(4)+证据链(4)+fill_work_orders(6)+deterministic_work_orders(3)+discover_tasks(6)+gap_analyzer(5)+deterministic_gap_fill(6)+_execute_task(5)+_execute_task_subtree(4)+_verify_evidence(11)+stop_reason(5)+retool(3)+ToolExecutor(6)+contract(2)+regression(4) |
+| **test_evidence_closure.py 迁移到 V22** | ✅ | 45 条活跃测试，保留函数 + ToolExecutor 集成 + V22 删除确认 |
+| **V22 Q&A 评测（4 Fix 后 46 样本 Semantic Judge）** | ✅ | 2026-07-21：any-correct 87.0%(40/46)、correct 34.8%(16/46)、partially_correct 52.2%(24/46)、incorrect 8.7%(4/46)、unjudgeable 4.3%(2/46)、budget_exceeded 0%、evidence_retrieval 91.3%、Judge 100% 有效 |
+| **外部评测回归（63 样本 V21 vs V22）** | ⬜ | |
+| **docs/INDEX.md 更新** | ✅ | 2026-07-21 |
+| **docs/CHANGELOG.md 更新** | ✅ | 2026-07-21 |
+| **_PLAN/plan_status.md 更新** | ✅ | 2026-07-21 |
+
+## V21 Agent 评测增强（2026-07-21）
+
+| 改动 | 状态 | 说明 |
+|------|------|------|
+| Task 关联问题类型 + ClosureState.question_type | ✅ | locate/grep/explain/trace/impact 贯穿全流程 |
+| 按问题类型差异化搜索路线 | ✅ | explain 读 helper 链；impact 扩依赖搜索；窗口大小按类型调整 |
+| Evidence 按 Target 分组合成 | ✅ | 每个 target 独立展示已确认/仍缺少/相关代码 |
+| 按问题类型最低 COMPLETE 条件 | ✅ | `check_minimum_evidence_contract()` 控制终止判定 |
+| 分类修复 `calls?` 误匹配 `__call__` | ✅ | explain 增加「如何/怎么/怎样」模式 |
 
 ## M0 领域模型与工具契约
 
@@ -114,6 +149,10 @@
 | GitHub Actions CI（test/golden/recovery） | ✅ |
 | **多轮探索 UX** | ✅ | 2026-07-17 M3 完成：假设驱动有限状态调查循环 + 三维预算 + 跨工具关联链 + LLM 辅助排序 + 去重 + investigation_id/续问复用；grep 无命中会受限回退文件名搜索后才 NO_EVIDENCE。Agent 评测已补相对成本/加权节省率及三类预算临界测试。 |
 | **SearchTool 独立实现** | ✅ | 2026-07-18 完成外部仓库检索修复：流式 Top-K、每文件预入堆去重、源码优先排序、docs_src 正确降权、定义名精确匹配；Agent 端过滤通用检索词并归一限定名。Typer 证据检索重放 5/19 → 17/19；该结果是工具层回放，尚非 GLM v1 端到端结果。 |
+| **合成健壮性修复 + 外部端到端 v2** | ✅ | 2026-07-19 完成：三处 LLM 调用统一 timeout=60 + thinking disabled（v1 端到端 47/63 条合成降级的根因），合成证据优先级选取（置信度+单文件上限），上下文文件按证据命中排序。v2 端到端 63/63 真实回答、0 降级；grounded_answer_rate 4.8-14.3% → 52.4-66.7%。 |
+| **合成上下文窗口化（v3/v4/v5 三轮）** | ✅ | 2026-07-19 完成：证据命中行 ±30 行窗口（v3）→ 上下文文件排序 源码目录>定义命中>命中数（v4）→ 关键词定义行权重 4 优先窗口（v5，补 SearchTool 每文件单命中的方法级盲区）。定性改善真实（explain 开始产出结构化正确回答、incorrect 保持低位），但总量指标平台期（grounded 52-71% 徘徊）。轮间对比受合成 temperature=0.3 噪声影响（±5pp 量级）。 |
+| **探索预算计账重构（v6）** | ✅ | 2026-07-19 完成（代码改动由 Codex 侧完成，本侧评测验收）：证据保留 [:8] + min(300) 字符计账、AST/依赖读源码不计账、合成保底 5000 tokens、合成上下文字符预算。v6 评测：budget_exhausted 36→0、平均步数 1.87→2.11、首现 4 步调查、63/63 回答保持；守卫命中 typer evidence_retrieval 100→90.5%（[:8] 截断误作用于事实层证据库，同日已修复：证据库全量保留、[:8] 只作用于计账口径，待重跑验证恢复）。语义层平台期；停止原因 STOP 37/NO_EVIDENCE 10/CONTINUE 9/BUDGET 0 → 下一瓶颈为假设静态模板。 |
+| **证据缺口动态行动（V9 待端到端验收）** | 🟡 | V8 固定 63 条真实 GLM + Judge：三仓库 `read_window` 基础设施失败 0（V7 Typer 9→0）、同调查重复 `(gap,target)` 0、Typer evidence_retrieval 100%。2026-07-19 已重构为 Evidence → answer_sufficient → missing_evidence → 动态行动的闭环：仅缺口行动可继续，零增量立即停，覆盖/无关行动清理，深度≤3、同类/同目标去重；通用工具队列不再续跑。待 V9 63 条验证 steps 超限 4/63 是否消除且质量守卫不退化。 |
 
 ## 明确不纳入 V1（计划书 §八）
 
@@ -151,11 +190,13 @@
 
 ## 当前优先级
 
-更新日期：2026-07-18（V1 收尾与 V1.1 Agent 增强阶段，M3 已落地，外部评测 Judge 已修复）
+更新日期：2026-07-19（V1 收尾与 V1.1 Agent 增强阶段；Judge 管道生产可用；端到端 v2-v8 已完成，V9 待验收）
 
-1. **外部 Agent v1 语义评测 V2 已完成** ✅（2026-07-19） — V2 改进：JSON Schema 校验 + 完整评判标准 + Evidence 截断 + 冻结数据补全 + 人工验证 12 条（一致率 91.7%）。judge_invalid_schema 三仓库均 0%（曾 5-24%），judge_effective 三仓库均 100%（曾 76-95%）。Judge 管道已可投入生产使用。
+1. **动态行动 V9 端到端验收** — 固定 63 条 + Judge，验证新的 Evidence→充分性→缺口行动闭环。验收：三仓库零 `read_window` 基础设施失败、同调查零重复 `(gap,target)`、无旧通用工具续跑、零增量行动立即停止、steps 超限不高于 V8 的 4/63，且 Typer evidence_retrieval 保持 100%。
 2. **评测真值校准** — 人工校验 ground truth（先 50 条）+ 外部真实项目样本（sample_cve.py 路线），把"系统内对比"升级为可外部背书的指标
 3. **微调 Planner** — 刻意放最后：规则 Planner 已有效，先做 Agent 增强更划算
-4. ~~Investigation Agent 增强 (M1/M2/M3)~~ ✅（2026-07-17）
-5. ~~Report 级评测~~ ✅（2026-07-16）
-6. ~~真实 GLM benchmark~~ ✅（2026-07-16）
+4. ~~探索预算计账重构~~ ✅（2026-07-19）：budget_exhausted 36→0、平均步数 1.87→2.11、首现 4 步、63/63 回答保持；代价 typer 证据层 -9.5pp 被守卫指标捕获，详见 `external_glm_v6/V6_EVAL_REPORT.md`
+5. ~~合成上下文窗口化（v3/v4/v5）~~ ✅（2026-07-19）：定性改善（explain 结构化回答、trace unjudgeable 13→10），总量平台期，详见 `external_glm_v5/V5_EVAL_REPORT.md`
+6. ~~外部 Agent 端到端 v2（合成健壮性修复 + 63 条重跑 + Judge 重判）~~ ✅（2026-07-19）：63/63 零降级，grounded 52.4-66.7%，Judge 一次通过率 100%（输出模板修复后 retry=0）
+7. ~~外部 Agent v1 语义评测 V2（Judge 管道修复）~~ ✅（2026-07-19）
+8. ~~Investigation Agent 增强 (M1/M2/M3)~~ ✅（2026-07-17）

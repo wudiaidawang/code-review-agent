@@ -7,9 +7,16 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "locate",
-      "expected_keywords": ["InvestigationAgent"],
-      "expected_answer_keywords": ["investigator.py", "app/agent"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
+      "expected_keywords": [
+        "InvestigationAgent"
+      ],
+      "expected_answer_keywords": [
+        "investigator.py",
+        "app/agent"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py"
+      ],
       "expected_answer_summary": "InvestigationAgent 类定义在 app/agent/investigator.py 中"
     }
   },
@@ -21,9 +28,16 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "locate",
-      "expected_keywords": ["Evidence"],
-      "expected_answer_keywords": ["evidence.py", "models"],
-      "expected_evidence_files": ["app/models/evidence.py"],
+      "expected_keywords": [
+        "Evidence"
+      ],
+      "expected_answer_keywords": [
+        "evidence.py",
+        "models"
+      ],
+      "expected_evidence_files": [
+        "app/models/evidence.py"
+      ],
       "expected_answer_summary": "Evidence 数据结构定义在 app/models/evidence.py 中"
     }
   },
@@ -35,9 +49,17 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "locate",
-      "expected_keywords": ["WorkspaceManager", "prepare"],
-      "expected_answer_keywords": ["workspace.py", "core"],
-      "expected_evidence_files": ["app/core/workspace.py"],
+      "expected_keywords": [
+        "WorkspaceManager",
+        "prepare"
+      ],
+      "expected_answer_keywords": [
+        "workspace.py",
+        "core"
+      ],
+      "expected_evidence_files": [
+        "app/core/workspace.py"
+      ],
       "expected_answer_summary": "WorkspaceManager.prepare() 在 app/core/workspace.py 中实现"
     }
   },
@@ -49,9 +71,16 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "locate",
-      "expected_keywords": ["load_samples"],
-      "expected_answer_keywords": ["eval_dataset.py", "pipeline"],
-      "expected_evidence_files": ["app/pipeline/eval_dataset.py"],
+      "expected_keywords": [
+        "load_samples"
+      ],
+      "expected_answer_keywords": [
+        "eval_dataset.py",
+        "pipeline"
+      ],
+      "expected_evidence_files": [
+        "app/pipeline/eval_dataset.py"
+      ],
       "expected_answer_summary": "load_samples() 定义在 app/pipeline/eval_dataset.py 中"
     }
   },
@@ -63,9 +92,16 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "locate",
-      "expected_keywords": ["_classify"],
-      "expected_answer_keywords": ["investigator.py", "agent"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
+      "expected_keywords": [
+        "_classify"
+      ],
+      "expected_answer_keywords": [
+        "investigator.py",
+        "agent"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py"
+      ],
       "expected_answer_summary": "_classify() 定义在 app/agent/investigator.py 中"
     }
   },
@@ -77,9 +113,16 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "locate",
-      "expected_keywords": ["InvestigationStore"],
-      "expected_answer_keywords": ["investigator.py", "app/agent"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
+      "expected_keywords": [
+        "InvestigationStore"
+      ],
+      "expected_answer_keywords": [
+        "investigator.py",
+        "app/agent"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py"
+      ],
       "expected_answer_summary": "InvestigationStore 定义在 app/agent/investigator.py"
     }
   },
@@ -91,9 +134,16 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "locate",
-      "expected_keywords": ["run_agent_benchmark"],
-      "expected_answer_keywords": ["eval_benchmark.py", "pipeline"],
-      "expected_evidence_files": ["app/pipeline/eval_benchmark.py"],
+      "expected_keywords": [
+        "run_agent_benchmark"
+      ],
+      "expected_answer_keywords": [
+        "eval_benchmark.py",
+        "pipeline"
+      ],
+      "expected_evidence_files": [
+        "app/pipeline/eval_benchmark.py"
+      ],
       "expected_answer_summary": "run_agent_benchmark() 定义在 app/pipeline/eval_benchmark.py 中"
     }
   },
@@ -105,9 +155,16 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "locate",
-      "expected_keywords": ["ReviewPipeline"],
-      "expected_answer_keywords": ["review_pipeline.py", "pipeline"],
-      "expected_evidence_files": ["app/pipeline/review_pipeline.py"],
+      "expected_keywords": [
+        "ReviewPipeline"
+      ],
+      "expected_answer_keywords": [
+        "review_pipeline.py",
+        "pipeline"
+      ],
+      "expected_evidence_files": [
+        "app/pipeline/review_pipeline.py"
+      ],
       "expected_answer_summary": "ReviewPipeline 定义在 app/pipeline/review_pipeline.py 中"
     }
   },
@@ -119,10 +176,21 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "explain",
-      "expected_keywords": ["investigate"],
-      "expected_answer_keywords": ["假设", "工具", "证据", "状态机"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
-      "expected_answer_summary": "investigate() 执行假设驱动的状态机循环：分类问题→提取关键词→生成假设→选择工具→执行步骤→评估决策→合成答案"
+      "expected_keywords": [
+        "investigate"
+      ],
+      "expected_answer_keywords": [
+        "六阶段",
+        "LLM分解",
+        "优先队列",
+        "合同判定",
+        "补缺",
+        "合成"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py"
+      ],
+      "expected_answer_summary": "V22 investigate() 执行6阶段流程：Phase1 LLM分解任务→Phase2 全局优先队列探查→Phase3 合同判定→Phase4 确定性补缺→Phase5 LLM一次retool→Phase6 合成答案"
     }
   },
   {
@@ -133,9 +201,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "explain",
-      "expected_keywords": ["Evidence", "confidence"],
-      "expected_answer_keywords": ["置信度", "确定性", "0.0", "1.0"],
-      "expected_evidence_files": ["app/models/evidence.py"],
+      "expected_keywords": [
+        "Evidence",
+        "confidence"
+      ],
+      "expected_answer_keywords": [
+        "置信度",
+        "确定性",
+        "0.0",
+        "1.0"
+      ],
+      "expected_evidence_files": [
+        "app/models/evidence.py"
+      ],
       "expected_answer_summary": "confidence 字段表示证据的置信度，取值范围 0.0 到 1.0，用于区分高置信度事实和低置信度推测"
     }
   },
@@ -147,10 +225,25 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "explain",
-      "expected_keywords": ["is_budget_exhausted"],
-      "expected_answer_keywords": ["步数", "文件数", "token", "三维"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
-      "expected_answer_summary": "is_budget_exhausted 检查三个维度：步数达到 steps_max(6)、文件读取数达到 files_max(50)、token 消耗达到 token_budget(16000)"
+      "expected_keywords": [
+        "is_budget_exhausted",
+        "consume_budget",
+        "ExplorationState"
+      ],
+      "expected_answer_keywords": [
+        "consume_budget",
+        "三阶段",
+        "main_steps",
+        "gap_steps",
+        "retool_steps"
+      ],
+      "expected_evidence_files": [
+        "app/agent/task_explorer.py",
+        "app/agent/investigator.py"
+      ],
+      "expected_answer_summary": "V22 中 is_budget_exhausted 已被 ExplorationState.consume_budget() 替代，三阶段独立预算：MAIN 12步、GAP 3步、RETOOL 4步，每阶段独立扣账",
+      "expected_status": "removed",
+      "expected_replacement": "ExplorationState.consume_budget() 三阶段独立预算"
     }
   },
   {
@@ -161,9 +254,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "explain",
-      "expected_keywords": ["load_samples", "dataset_version"],
-      "expected_answer_keywords": ["v1", "latest", "JSON", "手工"],
-      "expected_evidence_files": ["app/pipeline/eval_dataset.py"],
+      "expected_keywords": [
+        "load_samples",
+        "dataset_version"
+      ],
+      "expected_answer_keywords": [
+        "v1",
+        "latest",
+        "JSON",
+        "手工"
+      ],
+      "expected_evidence_files": [
+        "app/pipeline/eval_dataset.py"
+      ],
       "expected_answer_summary": "dataset_version='v1' 加载 10 条手工样本，'latest' 优先从 v2 JSON 文件加载 700 条样本"
     }
   },
@@ -175,9 +278,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "explain",
-      "expected_keywords": ["_classify"],
-      "expected_answer_keywords": ["正则", "模式匹配", "locate", "explain", "trace"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
+      "expected_keywords": [
+        "_classify"
+      ],
+      "expected_answer_keywords": [
+        "正则",
+        "模式匹配",
+        "locate",
+        "explain",
+        "trace"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py"
+      ],
       "expected_answer_summary": "_classify() 使用正则表达式 _QUESTION_PATTERNS 匹配中英文关键词，返回 5 种问题类型之一"
     }
   },
@@ -189,9 +302,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "explain",
-      "expected_keywords": ["follow_up"],
-      "expected_answer_keywords": ["复用", "续问", "证据", "session", "investigation_id"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
+      "expected_keywords": [
+        "follow_up"
+      ],
+      "expected_answer_keywords": [
+        "复用",
+        "续问",
+        "证据",
+        "session",
+        "investigation_id"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py"
+      ],
       "expected_answer_summary": "follow_up() 从已有调查会话加载证据，关键词匹配复用已有信息；充足时无需新工具调用直接合成答案"
     }
   },
@@ -203,9 +326,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "explain",
-      "expected_keywords": ["StepRecord"],
-      "expected_answer_keywords": ["step", "tool", "status", "evidence_count", "decision"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
+      "expected_keywords": [
+        "StepRecord"
+      ],
+      "expected_answer_keywords": [
+        "step",
+        "tool",
+        "status",
+        "evidence_count",
+        "decision"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py"
+      ],
       "expected_answer_summary": "StepRecord 记录单步调查信息：步骤序号、工具名、参数、状态、证据数、假设变化、决策、预算原因、耗时"
     }
   },
@@ -217,9 +350,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "explain",
-      "expected_keywords": ["_extract_keywords"],
-      "expected_answer_keywords": ["引号", "驼峰", "下划线", "标识符", "回退"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
+      "expected_keywords": [
+        "_extract_keywords"
+      ],
+      "expected_answer_keywords": [
+        "引号",
+        "驼峰",
+        "下划线",
+        "标识符",
+        "回退"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py"
+      ],
       "expected_answer_summary": "优先提取引号内文本，其次匹配大写驼峰和下划线标识符，最后回退到通用英文单词并过滤停用词"
     }
   },
@@ -231,9 +374,18 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "trace",
-      "expected_keywords": ["chat"],
-      "expected_answer_keywords": ["调用", "chat", "call_llm"],
-      "expected_evidence_files": ["app/agent/investigator.py", "app/pipeline/eval_benchmark.py"],
+      "expected_keywords": [
+        "chat"
+      ],
+      "expected_answer_keywords": [
+        "调用",
+        "chat",
+        "call_llm"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py",
+        "app/pipeline/eval_benchmark.py"
+      ],
       "expected_answer_summary": "chat() 被 InvestigationAgent 和 eval_benchmark 等多个模块通过 call_llm 调用"
     }
   },
@@ -245,9 +397,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "trace",
-      "expected_keywords": ["Evidence"],
-      "expected_answer_keywords": ["引用", "Evidence", "from app.models.evidence"],
-      "expected_evidence_files": ["app/agent/investigator.py", "app/pipeline/", "app/tools/"],
+      "expected_keywords": [
+        "Evidence"
+      ],
+      "expected_answer_keywords": [
+        "引用",
+        "Evidence",
+        "from app.models.evidence"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py",
+        "app/pipeline/",
+        "app/tools/"
+      ],
       "expected_answer_summary": "Evidence 被 agent/investigator.py、pipeline 层、tools 层以及测试文件广泛引用"
     }
   },
@@ -259,9 +421,17 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "trace",
-      "expected_keywords": ["load_samples"],
-      "expected_answer_keywords": ["eval_benchmark", "test_m4_eval"],
-      "expected_evidence_files": ["app/pipeline/eval_benchmark.py", "tests/test_m4_eval.py"],
+      "expected_keywords": [
+        "load_samples"
+      ],
+      "expected_answer_keywords": [
+        "eval_benchmark",
+        "test_m4_eval"
+      ],
+      "expected_evidence_files": [
+        "app/pipeline/eval_benchmark.py",
+        "tests/test_m4_eval.py"
+      ],
       "expected_answer_summary": "load_samples() 被 eval_benchmark.py 和 test_m4_eval.py 引用"
     }
   },
@@ -273,10 +443,21 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "trace",
-      "expected_keywords": ["WorkspaceManager", "prepare"],
-      "expected_answer_keywords": ["investigator.py", "review_pipeline.py"],
-      "expected_evidence_files": ["app/agent/investigator.py", "app/pipeline/review_pipeline.py"],
-      "expected_answer_summary": "WorkspaceManager.prepare() 被 investigator.py 和 review_pipeline.py 调用"
+      "expected_keywords": [
+        "WorkspaceManager",
+        "prepare"
+      ],
+      "expected_answer_keywords": [
+        "executor.py",
+        "fact_collector.py",
+        "review_pipeline.py"
+      ],
+      "expected_evidence_files": [
+        "app/pipeline/executor.py",
+        "app/pipeline/fact_collector.py",
+        "app/pipeline/review_pipeline.py"
+      ],
+      "expected_answer_summary": "WorkspaceManager.prepare() 被 executor.py、fact_collector.py、review_pipeline.py 调用"
     }
   },
   {
@@ -287,9 +468,20 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "trace",
-      "expected_keywords": ["InvestigationAgent"],
-      "expected_answer_keywords": ["import", "cli.py", "test_agent.py", "__init__.py"],
-      "expected_evidence_files": ["app/cli.py", "tests/test_agent.py", "app/agent/__init__.py"],
+      "expected_keywords": [
+        "InvestigationAgent"
+      ],
+      "expected_answer_keywords": [
+        "import",
+        "cli.py",
+        "test_agent.py",
+        "__init__.py"
+      ],
+      "expected_evidence_files": [
+        "app/cli.py",
+        "tests/test_agent.py",
+        "app/agent/__init__.py"
+      ],
       "expected_answer_summary": "InvestigationAgent 被 cli.py、test_agent.py 和 agent/__init__.py 导入"
     }
   },
@@ -301,10 +493,21 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "trace",
-      "expected_keywords": ["InvestigationState"],
-      "expected_answer_keywords": ["investigator.py", "import", "State"],
-      "expected_evidence_files": ["app/agent/investigator.py", "app/agent/__init__.py"],
-      "expected_answer_summary": "InvestigationState 主要在 investigator.py 中定义和使用，通过 __init__.py 导出"
+      "expected_keywords": [
+        "InvestigationState",
+        "ExplorationState"
+      ],
+      "expected_answer_keywords": [
+        "ExplorationState",
+        "task_explorer.py",
+        "investigator.py"
+      ],
+      "expected_evidence_files": [
+        "app/agent/task_explorer.py",
+        "app/agent/investigator.py",
+        "app/agent/__init__.py"
+      ],
+      "expected_answer_summary": "V22 中 InvestigationState 已被 ExplorationState 替代，定义在 task_explorer.py 中，由 investigator.py 和 __init__.py 引用"
     }
   },
   {
@@ -315,9 +518,18 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "trace",
-      "expected_keywords": ["_classify"],
-      "expected_answer_keywords": ["调用", "investigator.py", "benchmark"],
-      "expected_evidence_files": ["app/agent/investigator.py", "app/pipeline/eval_benchmark.py"],
+      "expected_keywords": [
+        "_classify"
+      ],
+      "expected_answer_keywords": [
+        "调用",
+        "investigator.py",
+        "benchmark"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py",
+        "app/pipeline/eval_benchmark.py"
+      ],
       "expected_answer_summary": "_classify() 在 investigator.py 的 investigate() 方法中被调用，也在 eval_benchmark.py 的 run_agent_benchmark() 中被调用"
     }
   },
@@ -329,9 +541,17 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "grep",
-      "expected_keywords": ["to_dict"],
-      "expected_answer_keywords": ["to_dict", "序列化"],
-      "expected_evidence_files": ["app/agent/investigator.py", "app/models/"],
+      "expected_keywords": [
+        "to_dict"
+      ],
+      "expected_answer_keywords": [
+        "to_dict",
+        "序列化"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py",
+        "app/models/"
+      ],
       "expected_answer_summary": "to_dict() 在 investigator.py 和 models/ 下多个文件中被广泛使用作为序列化接口"
     }
   },
@@ -343,9 +563,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "impact",
-      "expected_keywords": ["Evidence", "to_dict"],
-      "expected_answer_keywords": ["InvestigationResult", "investigator.py", "序列化", "test"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
+      "expected_keywords": [
+        "Evidence",
+        "to_dict"
+      ],
+      "expected_answer_keywords": [
+        "InvestigationResult",
+        "investigator.py",
+        "序列化",
+        "test"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py"
+      ],
       "expected_answer_summary": "修改 Evidence.to_dict() 会影响 InvestigationResult.to_dict() 以及所有消费序列化 Evidence 的下游代码"
     }
   },
@@ -357,9 +587,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "impact",
-      "expected_keywords": ["load_samples"],
-      "expected_answer_keywords": ["benchmark", "test", "eval", "调用方"],
-      "expected_evidence_files": ["app/pipeline/eval_benchmark.py", "tests/test_m4_eval.py"],
+      "expected_keywords": [
+        "load_samples"
+      ],
+      "expected_answer_keywords": [
+        "benchmark",
+        "test",
+        "eval",
+        "调用方"
+      ],
+      "expected_evidence_files": [
+        "app/pipeline/eval_benchmark.py",
+        "tests/test_m4_eval.py"
+      ],
       "expected_answer_summary": "修改 load_samples() 会影响 eval_benchmark.py 的评测逻辑和 test_m4_eval.py 的测试断言"
     }
   },
@@ -371,10 +611,20 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "impact",
-      "expected_keywords": ["_classify"],
-      "expected_answer_keywords": ["问题类型", "工具选择", "select_next_tool", "优先级"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
-      "expected_answer_summary": "修改 _classify() 会影响问题类型判定，进而影响 _select_next_tool() 的工具优先级表选择和后续调查流程"
+      "expected_keywords": [
+        "_classify"
+      ],
+      "expected_answer_keywords": [
+        "问题类型",
+        "fill_work_orders",
+        "TASK_TOOL_MAP",
+        "合同判定"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py",
+        "app/agent/task_explorer.py"
+      ],
+      "expected_answer_summary": "V22 中修改 _classify() 影响问题类型判定，进而影响 fill_work_orders() 的 _TASK_TOOL_MAP 工单映射和 check_minimum_evidence_contract() 合同判定"
     }
   },
   {
@@ -385,10 +635,21 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "impact",
-      "expected_keywords": ["steps_max"],
-      "expected_answer_keywords": ["预算", "步数", "超限", "循环"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
-      "expected_answer_summary": "调整 steps_max 会影响调查循环的最大迭代次数，过大可能浪费资源，过小可能提前终止"
+      "expected_keywords": [
+        "steps_max",
+        "max_main_steps"
+      ],
+      "expected_answer_keywords": [
+        "max_main_steps",
+        "三阶段预算",
+        "consume_budget",
+        "主阶段"
+      ],
+      "expected_evidence_files": [
+        "app/agent/task_explorer.py",
+        "app/agent/investigator.py"
+      ],
+      "expected_answer_summary": "V22 中 steps_max 已被 ExplorationState.max_main_steps(12) 替代，配合 max_gap_steps(3) 和 max_retool_steps(4) 形成三阶段独立预算，调整 max_main_steps 影响 Phase 2 主探查循环的最大步数"
     }
   },
   {
@@ -399,9 +660,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "impact",
-      "expected_keywords": ["EvalMetrics"],
-      "expected_answer_keywords": ["benchmark", "summary", "report", "to_dict"],
-      "expected_evidence_files": ["app/pipeline/eval_metrics.py", "app/pipeline/eval_benchmark.py"],
+      "expected_keywords": [
+        "EvalMetrics"
+      ],
+      "expected_answer_keywords": [
+        "benchmark",
+        "summary",
+        "report",
+        "to_dict"
+      ],
+      "expected_evidence_files": [
+        "app/pipeline/eval_metrics.py",
+        "app/pipeline/eval_benchmark.py"
+      ],
       "expected_answer_summary": "修改 EvalMetrics 会影响 eval_benchmark.py 的 BenchmarkResult.summary() 报告和 JSON 输出"
     }
   },
@@ -413,10 +684,23 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "impact",
-      "expected_keywords": ["call_llm"],
-      "expected_answer_keywords": ["合成", "synthesize", "答案", "LLM", "注入"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
-      "expected_answer_summary": "更换 call_llm 实现会影响答案合成的质量和风格，但不会影响工具选择和证据收集的确定性流程"
+      "expected_keywords": [
+        "call_llm"
+      ],
+      "expected_answer_keywords": [
+        "Query Planner",
+        "GapAnalyzer",
+        "Synthesis",
+        "任务分解",
+        "补缺",
+        "合成"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py",
+        "app/agent/query_planner.py",
+        "app/agent/task_explorer.py"
+      ],
+      "expected_answer_summary": "更换 call_llm 实现会影响：1) Query Planner 任务分解（影响调查方向和工具选择）；2) GapAnalyzer 补缺建议（影响 retool 任务生成）；3) 最终 Synthesis 答案合成（影响答案质量和风格）。不影响：确定性工具执行和 evidence verification。"
     }
   },
   {
@@ -427,9 +711,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "grep",
-      "expected_keywords": ["@dataclass"],
-      "expected_answer_keywords": ["dataclass", "class", "investigator", "models"],
-      "expected_evidence_files": ["app/agent/investigator.py", "app/models/"],
+      "expected_keywords": [
+        "@dataclass"
+      ],
+      "expected_answer_keywords": [
+        "dataclass",
+        "class",
+        "investigator",
+        "models"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py",
+        "app/models/"
+      ],
       "expected_answer_summary": "项目中 @dataclass 用于 InvestigationResult/StepRecord/InvestigationState 以及 models/ 下的数据模型类"
     }
   },
@@ -441,9 +735,18 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "grep",
-      "expected_keywords": ["pytest"],
-      "expected_answer_keywords": ["test_", "pytest", "import"],
-      "expected_evidence_files": ["tests/test_agent.py", "tests/conftest.py"],
+      "expected_keywords": [
+        "pytest"
+      ],
+      "expected_answer_keywords": [
+        "test_",
+        "pytest",
+        "import"
+      ],
+      "expected_evidence_files": [
+        "tests/test_agent.py",
+        "tests/conftest.py"
+      ],
       "expected_answer_summary": "测试目录下多个文件包含 pytest 导入和使用"
     }
   },
@@ -455,9 +758,18 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "grep",
-      "expected_keywords": ["monkeypatch"],
-      "expected_answer_keywords": ["monkeypatch", "test", "def test"],
-      "expected_evidence_files": ["tests/test_agent.py", "tests/conftest.py"],
+      "expected_keywords": [
+        "monkeypatch"
+      ],
+      "expected_answer_keywords": [
+        "monkeypatch",
+        "test",
+        "def test"
+      ],
+      "expected_evidence_files": [
+        "tests/test_agent.py",
+        "tests/conftest.py"
+      ],
       "expected_answer_summary": "monkeypatch 在 conftest.py 的 fixture 和多个测试文件中被使用"
     }
   },
@@ -469,9 +781,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "grep",
-      "expected_keywords": ["try:"],
-      "expected_answer_keywords": ["try:", "except", "异常"],
-      "expected_evidence_files": ["app/agent/investigator.py", "app/cli.py", "app/tools/"],
+      "expected_keywords": [
+        "try:"
+      ],
+      "expected_answer_keywords": [
+        "try:",
+        "except",
+        "异常"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py",
+        "app/cli.py",
+        "app/tools/"
+      ],
       "expected_answer_summary": "项目中有多处 try/except 异常处理，分布在 investigator.py、cli.py 和 tools 中"
     }
   },
@@ -483,9 +805,18 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "grep",
-      "expected_keywords": ["os.path"],
-      "expected_answer_keywords": ["os.path", "abspath", "dirname"],
-      "expected_evidence_files": ["app/pipeline/eval_dataset.py", "app/agent/investigator.py"],
+      "expected_keywords": [
+        "os.path"
+      ],
+      "expected_answer_keywords": [
+        "os.path",
+        "abspath",
+        "dirname"
+      ],
+      "expected_evidence_files": [
+        "app/pipeline/eval_dataset.py",
+        "app/agent/investigator.py"
+      ],
       "expected_answer_summary": "os.path 被 eval_dataset.py、investigator.py 等多个文件使用"
     }
   },
@@ -497,9 +828,19 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "grep",
-      "expected_keywords": ["json"],
-      "expected_answer_keywords": ["json.dumps", "json.loads", "json.load"],
-      "expected_evidence_files": ["app/pipeline/", "app/persistence/", "tests/"],
+      "expected_keywords": [
+        "json"
+      ],
+      "expected_answer_keywords": [
+        "json.dumps",
+        "json.loads",
+        "json.load"
+      ],
+      "expected_evidence_files": [
+        "app/pipeline/",
+        "app/persistence/",
+        "tests/"
+      ],
       "expected_answer_summary": "json 序列化/反序列化在 pipeline 层和 persistence 层被广泛使用"
     }
   },
@@ -511,8 +852,13 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "grep",
-      "expected_keywords": ["subprocess"],
-      "expected_answer_keywords": ["subprocess", "import"],
+      "expected_keywords": [
+        "subprocess"
+      ],
+      "expected_answer_keywords": [
+        "subprocess",
+        "import"
+      ],
       "expected_evidence_files": [],
       "expected_answer_summary": "subprocess 可能被 tools 层用于执行外部命令"
     }
@@ -525,8 +871,13 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "grep",
-      "expected_keywords": ["defaultdict"],
-      "expected_answer_keywords": ["defaultdict", "collections"],
+      "expected_keywords": [
+        "defaultdict"
+      ],
+      "expected_answer_keywords": [
+        "defaultdict",
+        "collections"
+      ],
       "expected_evidence_files": [],
       "expected_answer_summary": "搜索仓库中 defaultdict 的使用"
     }
@@ -539,9 +890,15 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "locate",
-      "expected_keywords": ["InvestigationAgent"],
-      "expected_answer_keywords": ["investigator.py"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
+      "expected_keywords": [
+        "InvestigationAgent"
+      ],
+      "expected_answer_keywords": [
+        "investigator.py"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py"
+      ],
       "expected_answer_summary": "InvestigationAgent 定义在 app/agent/investigator.py"
     }
   },
@@ -553,9 +910,16 @@
     "follow_up_order": 1,
     "ground_truth": {
       "question_type": "explain",
-      "expected_keywords": ["investigate"],
-      "expected_answer_keywords": ["repo_path", "question"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
+      "expected_keywords": [
+        "investigate"
+      ],
+      "expected_answer_keywords": [
+        "repo_path",
+        "question"
+      ],
+      "expected_evidence_files": [
+        "app/agent/investigator.py"
+      ],
       "expected_answer_summary": "investigate() 方法接受 repo_path 和 question 两个参数"
     }
   },
@@ -567,9 +931,15 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "locate",
-      "expected_keywords": ["Evidence"],
-      "expected_answer_keywords": ["evidence.py"],
-      "expected_evidence_files": ["app/models/evidence.py"],
+      "expected_keywords": [
+        "Evidence"
+      ],
+      "expected_answer_keywords": [
+        "evidence.py"
+      ],
+      "expected_evidence_files": [
+        "app/models/evidence.py"
+      ],
       "expected_answer_summary": "Evidence 类定义在 app/models/evidence.py"
     }
   },
@@ -581,9 +951,20 @@
     "follow_up_order": 1,
     "ground_truth": {
       "question_type": "explain",
-      "expected_keywords": ["Evidence"],
-      "expected_answer_keywords": ["id", "kind", "source", "location", "snippet", "confidence"],
-      "expected_evidence_files": ["app/models/evidence.py"],
+      "expected_keywords": [
+        "Evidence"
+      ],
+      "expected_answer_keywords": [
+        "id",
+        "kind",
+        "source",
+        "location",
+        "snippet",
+        "confidence"
+      ],
+      "expected_evidence_files": [
+        "app/models/evidence.py"
+      ],
       "expected_answer_summary": "Evidence 字段包括 id/kind/source/location/snippet/confidence/reference"
     }
   },
@@ -595,9 +976,18 @@
     "follow_up_order": 0,
     "ground_truth": {
       "question_type": "explain",
-      "expected_keywords": ["EvalMetrics"],
-      "expected_answer_keywords": ["compute", "precision", "recall", "F1"],
-      "expected_evidence_files": ["app/pipeline/eval_metrics.py"],
+      "expected_keywords": [
+        "EvalMetrics"
+      ],
+      "expected_answer_keywords": [
+        "compute",
+        "precision",
+        "recall",
+        "F1"
+      ],
+      "expected_evidence_files": [
+        "app/pipeline/eval_metrics.py"
+      ],
       "expected_answer_summary": "EvalMetrics.compute() 使用集合运算计算 precision/recall/F1，逐样本累加后取平均"
     }
   },
@@ -609,9 +999,17 @@
     "follow_up_order": 1,
     "ground_truth": {
       "question_type": "locate",
-      "expected_keywords": ["_set_precision"],
-      "expected_answer_keywords": ["eval_metrics.py", "predicted", "ground"],
-      "expected_evidence_files": ["app/pipeline/eval_metrics.py"],
+      "expected_keywords": [
+        "_set_precision"
+      ],
+      "expected_answer_keywords": [
+        "eval_metrics.py",
+        "predicted",
+        "ground"
+      ],
+      "expected_evidence_files": [
+        "app/pipeline/eval_metrics.py"
+      ],
       "expected_answer_summary": "_set_precision 在 eval_metrics.py 中，接受 predicted 和 ground 两个集合参数"
     }
   },
@@ -622,11 +1020,27 @@
     "follow_up_group": "fu_group_04",
     "follow_up_order": 0,
     "ground_truth": {
-      "question_type": "explain",
-      "expected_keywords": ["InvestigationState", "budget"],
-      "expected_answer_keywords": ["steps_max", "files_max", "token_budget", "6", "50", "16000"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
-      "expected_answer_summary": "InvestigationState 有三种预算：steps_max=6、files_max=50、token_budget=16000"
+      "question_type": "locate",
+      "expected_keywords": [
+        "InvestigationState",
+        "ExplorationState",
+        "budget"
+      ],
+      "expected_answer_keywords": [
+        "max_main_steps",
+        "max_gap_steps",
+        "max_retool_steps",
+        "12",
+        "3",
+        "4"
+      ],
+      "expected_evidence_files": [
+        "app/agent/task_explorer.py",
+        "app/agent/investigator.py"
+      ],
+      "expected_answer_summary": "V22 ExplorationState 有三阶段独立预算：max_main_steps=12（主探查）、max_gap_steps=3（确定性补缺）、max_retool_steps=4（LLM补缺），通过 consume_budget() 按阶段独立扣账",
+      "expected_status": "removed",
+      "expected_replacement": "V22 ExplorationState 管理三段预算: max_main_steps=12, max_gap_steps=3, max_retool_steps=4"
     }
   },
   {
@@ -637,10 +1051,22 @@
     "follow_up_order": 1,
     "ground_truth": {
       "question_type": "explain",
-      "expected_keywords": ["is_budget_exhausted"],
-      "expected_answer_keywords": ["True", "步数", "steps"],
-      "expected_evidence_files": ["app/agent/investigator.py"],
-      "expected_answer_summary": "步数预算耗尽时 is_budget_exhausted 返回 True，调查循环停止"
+      "expected_keywords": [
+        "is_budget_exhausted",
+        "consume_budget"
+      ],
+      "expected_answer_keywords": [
+        "False",
+        "consume_budget",
+        "预算耗尽",
+        "max_main_steps"
+      ],
+      "expected_evidence_files": [
+        "app/agent/task_explorer.py"
+      ],
+      "expected_answer_summary": "V22 中 is_budget_exhausted 已被 consume_budget() 替代：当对应 phase 的已用步数达到上限时返回 False，调查循环停止；如 MAIN phase 用满 max_main_steps=12 步后无法继续",
+      "expected_status": "removed",
+      "expected_replacement": "ExplorationState.consume_budget()"
     }
   }
 ]

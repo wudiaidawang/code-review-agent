@@ -16,7 +16,8 @@ from app.pipeline.agent_eval_runner import AgentEvalRunner
 from app.pipeline.agent_eval_judge import (
     judge_record, summarize_judgments, judge_baseline,
     _parse_judge_json, _validate_schema, _extract_json_object, _strip_fences,
-    _truncate_evidence, JUDGE_OUTPUT_SCHEMA, JUDGE_SYSTEM_PROMPT,
+    _truncate_evidence, _check_evidence_grounding,
+    JUDGE_OUTPUT_SCHEMA, JUDGE_SYSTEM_PROMPT,
 )
 
 
@@ -174,13 +175,18 @@ class TestMetricsComputation:
         assert metrics.budget_overrun_rate == 1.0
         assert metrics.budget_overrun_by_type == {"tokens": 1}
 
+    def test_budget_detects_new_terminal_limit_code(self):
+        record = self._make_record(answer="test", trace=[])
+        record["steps"] = [{"tool": "search", "decision": "STOP_STEP_LIMIT"}]
+        assert detect_budget_exceeded(record) == (True, "steps")
+
     def test_budget_detects_final_state_status(self):
         record = self._make_record(answer="test", trace=[])
         record["final_state"] = {"status": "BUDGET", "budget_type": "files"}
         assert detect_budget_exceeded(record) == (True, "files")
 
-    def test_follow_up_savings_rate(self):
-        """续问指标同时区分相对成本与节省率。"""
+    def test_follow_up_relative_cost(self):
+        """续问指标报告相对成本。"""
         records = [
             self._make_record(answer="test", step_count=4, is_follow_up=False,
                               follow_up_group="g1"),
@@ -189,12 +195,10 @@ class TestMetricsComputation:
         ]
         metrics = AgentEvalMetrics.compute(records)
         assert metrics.follow_up_relative_cost == 0.25
-        assert metrics.follow_up_savings_rate == 0.75
-        assert metrics.follow_up_weighted_savings_rate == 0.75
         assert len(metrics.follow_up_per_sample) == 1
 
-    def test_weighted_follow_up_savings_avoids_short_initial_bias(self):
-        """加权节省率按总步数计算，不让短首次调查被等权放大。"""
+    def test_follow_up_relative_cost_varied_groups(self):
+        """续问相对成本按组分别计算。"""
         records = [
             self._make_record(answer="test", step_count=2, follow_up_group="g1"),
             self._make_record(answer="test", step_count=0, is_follow_up=True,
@@ -205,8 +209,6 @@ class TestMetricsComputation:
         ]
         metrics = AgentEvalMetrics.compute(records)
         assert metrics.follow_up_relative_cost == 1.0
-        assert metrics.follow_up_savings_rate == 0.0
-        assert metrics.follow_up_weighted_savings_rate == round(1 - (2 / 3), 4)
 
     def test_empty_records(self):
         """空记录 → 所有指标为 0 或空。"""
@@ -221,8 +223,8 @@ class TestMetricsComputation:
         d = metrics.to_dict()
         for key in ["task_completion_rate", "evidence_traceability_rate",
                      "avg_tool_steps", "overall_avg_tool_steps",
-                     "budget_overrun_rate", "follow_up_savings_rate",
-                     "follow_up_relative_cost", "follow_up_weighted_savings_rate",
+                     "budget_overrun_rate",
+                     "follow_up_relative_cost",
                      "strict_completion_rate", "evidence_retrieval_rate", "citation_grounded_rate"]:
             assert key in d, f"缺少字段 {key}"
 
@@ -711,3 +713,179 @@ class TestAgentRealJsonIntegrity:
             assert "question_type" in gt, f"{s.id} 缺少 question_type"
             assert "expected_answer_keywords" in gt, f"{s.id} 缺少 expected_answer_keywords"
             assert "expected_answer_summary" in gt, f"{s.id} 缺少 expected_answer_summary"
+
+
+class TestEvidenceGrounding:
+    """_check_evidence_grounding() 增强：文件匹配 + 行号范围 + snippet 行号标注。"""
+
+    def _make_evidence(self, file, start_line=0, end_line=0, snippet=""):
+        return [{
+            "location": {"file": file, "start_line": start_line, "end_line": end_line},
+            "snippet": snippet,
+        }]
+
+    def test_file_exists_line_in_range_grounded(self):
+        ev = self._make_evidence("app/agent/investigator.py", 296, 310,
+                                  "296| class InvestigationAgent:\n297|     ...")
+        result = _check_evidence_grounding("见 app/agent/investigator.py:296 定义", ev)
+        assert result["grounded"] is True
+        assert result["total_verified_lines"] == 1
+        assert result["no_refs"] is False
+        assert len(result["ungrounded_entries"]) == 0
+
+    def test_file_exists_line_out_of_range_ungrounded(self):
+        ev = self._make_evidence("app/agent/investigator.py", 296, 310)
+        result = _check_evidence_grounding("见 app/agent/investigator.py:999 定义", ev)
+        assert result["grounded"] is False
+        assert result["total_verified_lines"] == 0
+        assert len(result["ungrounded_entries"]) == 1
+        assert result["ungrounded_entries"][0]["reason"] == "line out of evidence range"
+
+    def test_file_not_found_ungrounded(self):
+        ev = self._make_evidence("app/agent/investigator.py", 296, 310)
+        result = _check_evidence_grounding("见 app/models/evidence.py:42 定义", ev)
+        assert result["grounded"] is False
+        assert result["ungrounded_entries"][0]["reason"] == "file not found in evidence"
+
+    def test_no_refs_not_grounded(self):
+        """答案无文件引用 → no_refs=True，不自动 grounded。"""
+        ev = self._make_evidence("app/agent/investigator.py", 296, 310)
+        result = _check_evidence_grounding("无法确定，证据不足", ev)
+        assert result["grounded"] is False
+        assert result["no_refs"] is True
+        assert result["total_refs"] == 0
+
+    def test_mixed_refs_partial_verified(self):
+        """混合引用：部分文件匹配+行号通过，部分行号越界。"""
+        ev = [
+            {"location": {"file": "app/agent/investigator.py", "start_line": 296, "end_line": 310},
+             "snippet": "296| class InvestigationAgent:"},
+            {"location": {"file": "app/models/evidence.py", "start_line": 18, "end_line": 28},
+             "snippet": "18| @dataclass\n19| class Evidence:"},
+        ]
+        result = _check_evidence_grounding(
+            "见 app/agent/investigator.py:300 和 app/models/evidence.py:999",
+            ev)
+        assert result["grounded"] is False
+        assert result["total_verified_lines"] == 1
+        assert len(result["ungrounded_entries"]) == 1
+        assert "999" in result["ungrounded_entries"][0]["ref"]
+
+    def test_snippet_line_number_fallback(self):
+        """当 start_line/end_line=0 时，应从 snippet 提取行号进行匹配。"""
+        ev = [{
+            "location": {"file": "app/agent/investigator.py", "start_line": 0, "end_line": 0},
+            "snippet": "296| class InvestigationAgent:\n297|     \"\"\"...\"\"\"\n298|     def __init__(self):",
+        }]
+        result = _check_evidence_grounding("见 app/agent/investigator.py:297 定义", ev)
+        assert result["grounded"] is True
+        assert result["total_verified_lines"] == 1
+
+    def test_whole_file_evidence_passes_any_line(self):
+        """整文件级证据（start_line=end_line=0 且无 snippet）→ 行号检查通过。"""
+        ev = self._make_evidence("app/agent/investigator.py", 0, 0, "")
+        result = _check_evidence_grounding("见 app/agent/investigator.py:42 定义", ev)
+        assert result["grounded"] is True
+        assert result["total_verified_lines"] == 1
+
+    def test_windows_path_normalization(self):
+        """Windows 反斜杠路径在比较时统一为 /。"""
+        ev = self._make_evidence("app\\agent\\investigator.py", 296, 310)
+        result = _check_evidence_grounding("见 app/agent/investigator.py:296 定义", ev)
+        assert result["grounded"] is True
+
+    def test_multiple_references_all_verified(self):
+        ev = [
+            {"location": {"file": "app/agent/investigator.py", "start_line": 296, "end_line": 310},
+             "snippet": "296| class InvestigationAgent:"},
+            {"location": {"file": "app/agent/task_explorer.py", "start_line": 80, "end_line": 100},
+             "snippet": "80| class ExplorationState:"},
+        ]
+        result = _check_evidence_grounding(
+            "见 app/agent/investigator.py:300 和 app/agent/task_explorer.py:85",
+            ev)
+        assert result["grounded"] is True
+        assert result["total_verified_lines"] == 2
+
+
+class TestExpectedStatusRemoved:
+    """expected_status=removed 时的 Judge 行为验证。"""
+
+    def _valid_correct(self):
+        return ('{"verdict":"correct","score":2,"answered_question":true,'
+                '"uses_supported_evidence":true,"expected_file_coverage":"full",'
+                '"reason":"正确报告符号已删除","missing_points":[]}')
+
+    def test_expected_status_passed_in_payload(self):
+        """验证 expected_status 和 expected_replacement 出现在 judge payload 中。"""
+        seen_payload = []
+        def fake(prompt, system=None, **kwargs):
+            payload = json.loads(prompt)
+            seen_payload.append(payload)
+            return self._valid_correct()
+        record = {
+            "sample_id": "x", "question": "is_budget_exhausted 在哪定义？",
+            "final_answer": "V22 中该符号已被删除，由 ExplorationState.consume_budget() 替代",
+            "evidence": [],
+            "expected_answer_summary": "V22 中已删除",
+            "expected_answer_keywords": ["consume_budget"],
+            "expected_evidence_files": [],
+            "expected_status": "removed",
+            "expected_replacement": "ExplorationState.consume_budget()",
+        }
+        result = judge_record(record, fake)
+        assert result["verdict"] == "correct"
+        assert seen_payload[0]["expected_status"] == "removed"
+        assert seen_payload[0]["expected_replacement"] == "ExplorationState.consume_budget()"
+
+    def test_expected_status_defaults_to_active(self):
+        """未提供 expected_status 时默认值为 active。"""
+        seen_payload = []
+        def fake(prompt, system=None, **kwargs):
+            payload = json.loads(prompt)
+            seen_payload.append(payload)
+            return self._valid_correct()
+        record = {
+            "sample_id": "x", "question": "q",
+            "final_answer": "a", "evidence": [],
+            "expected_answer_summary": "",
+            "expected_answer_keywords": [],
+            "expected_evidence_files": [],
+        }
+        result = judge_record(record, fake)
+        assert seen_payload[0]["expected_status"] == "active"
+        assert seen_payload[0]["expected_replacement"] == ""
+
+    def test_agent_reports_removed_symbol_judge_correct(self):
+        """Agent 正确报告符号已删除 + expected_status=removed → correct。"""
+        fake = lambda *a, **k: self._valid_correct()
+        record = {
+            "sample_id": "real_explain_03", "question": "is_budget_exhausted 如何判断预算耗尽？",
+            "final_answer": "无法回答，未找到相关证据。该符号在 V22 中已被删除。",
+            "evidence": [],
+            "expected_answer_summary": "V22 中该符号已被替代",
+            "expected_answer_keywords": ["consume_budget"],
+            "expected_evidence_files": ["app/agent/task_explorer.py"],
+            "expected_status": "removed",
+            "expected_replacement": "ExplorationState.consume_budget()",
+        }
+        result = judge_record(record, fake)
+        assert result["judge_error_type"] is None
+
+    def test_evidence_grounding_downgrades_correct_to_partial(self):
+        """答案引用不在证据中的文件 → grounding 降级 correct → partially_correct。"""
+        fake = lambda *a, **k: self._valid_correct()
+        record = {
+            "sample_id": "x", "question": "q",
+            "final_answer": "该函数定义在 app/models/nonexistent.py:42",
+            "evidence": [],
+            "expected_answer_summary": "定义在 app/models/evidence.py",
+            "expected_answer_keywords": [],
+            "expected_evidence_files": [],
+        }
+        result = judge_record(record, fake)
+        # 答案引用 nonexistent.py，应降级
+        assert result["verdict"] == "partially_correct"
+        assert "证据锚定降级" in result["reason"]
+        assert result.get("evidence_grounding") is not None
+        assert result["evidence_grounding"]["grounded"] is False

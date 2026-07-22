@@ -22,7 +22,7 @@ def get_client(timeout: float | None = None):
 
 
 def get_model() -> str:
-    return os.getenv("ZHIPU_MODEL", "glm-4.5-air")
+    return os.getenv("ZHIPU_MODEL", "glm-4.6v")
 
 
 @retry(

@@ -5,6 +5,7 @@
 Evidence confidence=1.0；LLM/RAG 产出的可低于 1.0。
 """
 
+import hashlib
 from dataclasses import dataclass, field, asdict
 
 from app.models.ids import new_id
@@ -35,3 +36,22 @@ class Evidence:
         loc = data.get("location")
         data["location"] = CodeLocation.from_dict(loc) if loc else None
         return cls(**data)
+
+    @staticmethod
+    def compute_deterministic_id(repo_commit: str, file: str,
+                                 start_line: int, end_line: int,
+                                 snippet: str) -> str:
+        """基于内容 hash 生成确定性 Evidence ID，保证同内容同 ID。
+
+        用于评测可复现性——同一仓库同一位置的同一代码片段，
+        每次运行都得到相同的 ev_xxxxxxxx。
+        """
+        raw = f"{repo_commit}|{file}|{start_line}|{end_line}|{snippet}"
+        return "ev_" + hashlib.md5(raw.encode("utf-8")).hexdigest()[:8]
+
+    def set_deterministic_id(self, repo_commit: str, file: str,
+                             start_line: int, end_line: int,
+                             snippet: str) -> None:
+        """用内容 hash 覆盖当前 Evidence 的 id 字段。"""
+        self.id = self.compute_deterministic_id(
+            repo_commit, file, start_line, end_line, snippet)

@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from collections import defaultdict
@@ -18,6 +19,7 @@ from collections import defaultdict
 from app.agent.investigator import InvestigationAgent, InvestigationStore
 from app.pipeline.eval_dataset import load_samples, RealInvestigationSample
 from app.pipeline.agent_eval_metrics import AgentEvalMetrics, _judge_completion, _has_evidence_citations, detect_budget_exceeded
+from app.pipeline.agent_eval_judge import judge_record
 
 
 def _make_mock_answer(sample: RealInvestigationSample) -> str:
@@ -65,10 +67,16 @@ class AgentEvalRunner:
             self.call_llm = lambda *a, **kw: "mock answer"
         self.agent = InvestigationAgent(call_llm=self.call_llm, store=self.store)
 
+    _EXTERNAL_REPO_BASE = os.path.join(
+        os.environ.get("EVAL_REPO_BASE", os.path.join(tempfile.gettempdir(), "eval_repos"))
+    )
+
     def run_all(self, top_n: int | None = None, verbose: bool = True,
                 dataset_mode: str = "agent_real", project: str | None = None,
-                checkpoint_path: str | None = None) -> AgentEvalResult:
+                checkpoint_path: str | None = None, run_judge: bool = True) -> AgentEvalResult:
         """加载真实样本，逐个运行 investigate/follow_up，计算指标。"""
+        if dataset_mode == "agent_external" and project:
+            self.repo_path = os.path.join(self._EXTERNAL_REPO_BASE, project)
         samples = load_samples(dataset_mode, project=project)
         if not samples:
             print("错误: 未找到 agent_eval_real.json，请先创建评测数据集。")
@@ -121,6 +129,30 @@ class AgentEvalRunner:
                 fu_steps = [r["step_count"] for r in results[1:]]
                 fu_str = ", ".join(str(s) for s in fu_steps)
                 print(f"初始 {initial} 步 → 续问 [{fu_str}] 步")
+
+        # LLM Judge 语义评判阶段
+        if run_judge and not self.mock:
+            if verbose:
+                print(f"\n--- LLM Judge 语义评判 ({len(per_sample)} 条) ---")
+            for i, record in enumerate(per_sample):
+                if record.get("llm_judge"):
+                    continue  # 从 checkpoint 恢复，已有评判结果
+                if verbose:
+                    print(f"  Judge [{i+1}/{len(per_sample)}] {record.get('sample_id', '?')}...", end=" ", flush=True)
+                try:
+                    judgment = judge_record(record)
+                    record["llm_judge"] = judgment
+                    if verbose:
+                        print(judgment.get("verdict", "?"))
+                except Exception as exc:
+                    record["llm_judge"] = {"verdict": "unjudgeable", "judge_error": str(exc), "judge_error_type": "judge_unavailable"}
+                    if verbose:
+                        print(f"ERROR: {exc}")
+                # Judge calls are the slowest and least predictable phase.
+                # Persist every verdict so an interruption resumes from the
+                # next sample instead of repeating the whole 21-sample batch.
+                self._save_checkpoint(checkpoint_path, per_sample)
+            self._save_checkpoint(checkpoint_path, per_sample)
 
         metrics = AgentEvalMetrics.compute(per_sample)
         if verbose:
@@ -189,10 +221,13 @@ class AgentEvalRunner:
                         result, is_follow_up: bool = False) -> dict:
         gt = sample.ground_truth
         step_count = len([s for s in result.steps if s.get("tool") != "(blocked)"])
-        return {
+        record = {
             "sample_id": sample.id,
             "question": sample.question,
             "question_type": gt.get("question_type", ""),
+            "project": sample.project,
+            "repo_url": sample.repo_url,
+            "repo_commit": sample.commit_sha,
             "is_follow_up": is_follow_up,
             "follow_up_group": sample.follow_up_group,
             "answer": result.answer,
@@ -207,6 +242,26 @@ class AgentEvalRunner:
             "expected_answer_keywords": gt.get("expected_answer_keywords", []),
             "expected_evidence_files": gt.get("expected_evidence_files", []),
             "expected_answer_summary": gt.get("expected_answer_summary", ""),
+            "expected_status": gt.get("expected_status", "active"),
+            "expected_replacement": gt.get("expected_replacement", ""),
+            # V22 诊断字段
+            "planned_tasks": result.planned_tasks,
+            "all_tasks": result.all_tasks,
+            "work_orders": result.work_orders,
+            "verified_evidence_summary": result.verified_evidence_summary,
+            "candidate_evidence_count": result.candidate_evidence_count,
+            "required_slots": result.required_slots,
+            "closed_slots": result.closed_slots,
+            "open_slots": result.open_slots,
+            "contract_met_before": result.contract_met_before,
+            "contract_met_after": result.contract_met_after,
+            "stop_reason": result.stop_reason,
+            "retool_triggered": result.retool_triggered,
+            # V23 Claims 诊断
+            "required_claims": result.required_claims,
+            "covered_claims": result.covered_claims,
+            "uncovered_claims": result.uncovered_claims,
+            "claim_coverage_rate": result.claim_coverage_rate,
         }
         exceeded, budget_type = detect_budget_exceeded(record)
         record["budget_exhausted"] = exceeded
@@ -219,6 +274,9 @@ class AgentEvalRunner:
             "sample_id": sample.id,
             "question": sample.question,
             "question_type": sample.ground_truth.get("question_type", ""),
+            "project": sample.project,
+            "repo_url": sample.repo_url,
+            "repo_commit": sample.commit_sha,
             "is_follow_up": False,
             "follow_up_group": sample.follow_up_group,
             "answer": f"(执行错误: {error_msg})",
@@ -234,6 +292,8 @@ class AgentEvalRunner:
             "expected_answer_keywords": sample.ground_truth.get("expected_answer_keywords", []),
             "expected_evidence_files": sample.ground_truth.get("expected_evidence_files", []),
             "expected_answer_summary": sample.ground_truth.get("expected_answer_summary", ""),
+            "expected_status": sample.ground_truth.get("expected_status", "active"),
+            "expected_replacement": sample.ground_truth.get("expected_replacement", ""),
         }
 
 
@@ -263,6 +323,8 @@ def main():
                         default=None, help="外部评测集项目过滤（agent_external 必填）")
     parser.add_argument("--checkpoint", type=str, default=None,
                         help="逐样本 checkpoint JSON；重复运行会恢复已完成样本")
+    parser.add_argument("--no-judge", action="store_true",
+                        help="跳过 LLM Judge 语义评判阶段")
 
     args = parser.parse_args()
 
@@ -270,7 +332,8 @@ def main():
     if args.dataset == "agent_external" and not args.project:
         parser.error("--dataset agent_external 时必须提供 --project")
     result = runner.run_all(top_n=args.top, dataset_mode=args.dataset,
-                            project=args.project, checkpoint_path=args.checkpoint)
+                            project=args.project, checkpoint_path=args.checkpoint,
+                            run_judge=not args.no_judge)
 
     if args.json:
         output = json.dumps(result.to_dict(), ensure_ascii=False, indent=2)

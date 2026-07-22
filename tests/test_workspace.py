@@ -27,6 +27,30 @@ class TestWorkspaceManager:
         finally:
             ws.cleanup()
 
+    def test_read_file_at_ref_does_not_require_full_snapshot(self):
+        # A sparse read is valid even when a full snapshot would exceed the
+        # repository file-count cap.
+        mgr = WorkspaceManager(WorkspaceConfig(max_files=1, tmp_prefix="tws_"))
+        content = mgr.read_file_at_ref(".", "HEAD", "app/core/workspace.py")
+        assert "class WorkspaceManager" in content
+
+    def test_read_file_at_ref_rejects_unsafe_or_unsupported_paths(self):
+        mgr = WorkspaceManager(WorkspaceConfig(tmp_prefix="tws_"))
+        for path in ("../../etc/passwd", "C:/Windows/system32.py", "README.md"):
+            try:
+                mgr.read_file_at_ref(".", "HEAD", path)
+                assert False, f"should reject {path}"
+            except ValueError:
+                pass
+
+    def test_read_file_at_ref_enforces_single_file_limit(self):
+        mgr = WorkspaceManager(WorkspaceConfig(max_file_bytes=1, tmp_prefix="tws_"))
+        try:
+            mgr.read_file_at_ref(".", "HEAD", "app/core/workspace.py")
+            assert False, "should reject an oversized file"
+        except ValueError:
+            pass
+
     def test_path_traversal_blocked(self):
         mgr = WorkspaceManager(WorkspaceConfig(tmp_prefix="tws_"))
         ws = mgr.prepare(".")
