@@ -40,5 +40,11 @@ review_output.json
 # 评测结果与检查点（运行时生成，不适合上传）
 eval_report/results_agent/
 
+# 评测数据集与快照（仅本地使用，不上传）
+tests/__snapshots__/eval_dataset_v2.json
+tests/__snapshots__/eval_dataset_v2_meta.json
+tests/__snapshots__/agent_eval_real.json
+tests/__snapshots__/agent_eval_external_v1.json
+
 # 临时测试文件
 code.py
