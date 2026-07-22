@@ -563,6 +563,6 @@ V1 计划任务跟踪表 — 对照主计划书逐项标记完成状态（M0—V
 - `pytest.ini` — pytest 配置：`testpaths=tests` 把收集范围钉在 `tests/`，避免向上走到 E:\ 根目录导致收集失败；`addopts=-q`；注册 markers（golden/regression/slow/perf）。
 - `.github/workflows/test.yml` — GitHub Actions CI/CD：3 个 job — `test`（单元+集成，Python 3.10/3.11 矩阵）、`golden`（黄金基线）、`recovery`（容错验证）。使用 `actions/checkout@v5` + `actions/setup-python@v6`（Node.js 24）。
 - `.env` — 环境变量（密钥、API URL、模型名、GITHUB_TOKEN）；已 gitignore。
-- `.gitignore` — 忽略 `chroma_db/`、`.env`、`.claude/`、`__pycache__/`、`.idea/`、`*_review_report.md` 等。
+- `.gitignore` — 忽略 `chroma_db/`、`.env`、`.claude/`、`__pycache__/`、`.idea/`、`*_review_report.md`、`eval_report/results_agent/`（评测检查点与运行日志）等。
 - `chroma_db/` — ChromaDB 持久化目录（运行时生成）；已 gitignore。
 - `chroma_db.bak.*` — 迁移期间对旧知识库的临时备份（运行时产物，可删）。
