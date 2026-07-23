@@ -16,6 +16,12 @@
 
 ## 快速开始
 
+面向前端使用者的功能说明、可提问范围与限制见 [使用指南](docs/USER_GUIDE.md)。
+
+前端首次打开需要注册本地账号；账号、会话令牌和对话历史保存在服务端 SQLite（轻量数据库）中，并按用户隔离。
+
+准备项目介绍或技术面试时，可使用 [项目面试题库](docs/INTERVIEW_QUESTION_BANK.md)。
+
 ### 环境要求
 
 - Python 3.10+
@@ -61,7 +67,14 @@ POST /jobs/review      # 异步提交审查，返回 job_id
 POST /jobs/investigate # 异步提交调查，返回 job_id
 GET  /jobs/{job_id}    # 查询异步任务状态/结果
 GET  /jobs/{job_id}/events # SSE 流式输出 queued/plan/result 事件
+GET  /                  # 浅色 Web 对话界面
+POST /repos/import/local # 从浏览器导入本地代码文件夹
+POST /repos/import/github # 克隆 GitHub 公开仓库
 ```
+
+### Web 对话界面
+
+启动服务后访问 `http://127.0.0.1:8000/`。界面提供本地文件夹导入、GitHub 公开仓库地址导入、对话式 Investigation（代码调查）与浏览器本地保存的对话历史。导入的代码会先转为服务端受控的临时 Git 仓库，再被 Agent（智能体）以只读快照方式调查；单次导入限制为 500 个文件、50 MB。
 
 异步 Job API（任务接口）最多接纳 50 个 queued/running（排队/运行中）任务，
 默认最多 8 个 worker（工作槽）同时执行，以保护本地文件系统和 LLM（大语言模型）上游。
@@ -75,6 +88,7 @@ GET  /jobs/{job_id}/events # SSE 流式输出 queued/plan/result 事件
 - `Completion Gate（完成闸门）`同时检查结构槽位和 Claim（待回答断言），避免“找到定义就提前完成”。
 - `GAP Scheduler（确定性补缺调度器）`按信息价值优先验证调用边，再考虑实现、定义与候选引用；普通问题逐条补缺并立即复判，调用链最多保留两条定向边补缺空间。
 - LLM（大语言模型）不接管调度；它仅能在证据不足时申请一次 schema-validated RETOOL Task（结构校验后的受控补充任务）。
+- 对“接口/路由枚举、项目结构、前端入口、Pipeline（管道）位置”等结构问题，Codebase QA（代码库问答）先生成受限代码地图，再让 LLM 阅读至多 6 个关键片段；回答只能引用该地图生成的 Evidence（证据）。
 
 ## 架构概览
 

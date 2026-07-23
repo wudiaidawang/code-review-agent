@@ -1,21 +1,25 @@
 """API 路由 — /review 提交审查、查询、健康检查。"""
 
-import asyncio
 import json
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from app.api.schemas import (
     ReviewRequest, ReviewResponse, InvestigateRequest, InvestigateResponse,
     RunSummary, RunListResponse, JobAcceptedResponse,
+    GitHubImportRequest,
+    AuthRequest, ConversationRequest, OwnedInvestigateRequest, OwnedReviewRequest,
 )
 from app.api.jobs import AsyncJobManager
+from app.api.repositories import RepositoryImportManager
 from app.agent.investigator import InvestigationAgent
 from app.pipeline.review_pipeline import ReviewPipeline
 from app.persistence.store import RunStore
+from app.persistence.users import ConflictError, UserStore
 from app.models.ids import new_id
 
 
@@ -23,6 +27,9 @@ store = RunStore()
 pipeline = ReviewPipeline()
 investigator = InvestigationAgent()
 jobs = AsyncJobManager()
+repositories = RepositoryImportManager()
+users = UserStore()
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
 def register_routes(app):
@@ -31,6 +38,61 @@ def register_routes(app):
     @app.get("/health")
     async def health():
         return {"status": "ok"}
+
+    def current_user(authorization: str | None = Header(default=None)):
+        token = authorization.removeprefix("Bearer ").strip() if authorization else ""
+        user = users.user_for_token(token) if token else None
+        if not user:
+            raise HTTPException(status_code=401, detail={"code": "UNAUTHORIZED", "message": "请先登录"})
+        return user
+
+    @app.post("/auth/register")
+    async def register(req: AuthRequest):
+        try:
+            return users.register(req.username, req.password)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "REGISTER_FAILED", "message": str(exc)})
+
+    @app.post("/auth/login")
+    async def login(req: AuthRequest):
+        try:
+            return users.login(req.username, req.password)
+        except ValueError as exc:
+            raise HTTPException(status_code=401, detail={"code": "LOGIN_FAILED", "message": str(exc)})
+
+    @app.get("/auth/me")
+    async def me(authorization: str | None = Header(default=None)):
+        return current_user(authorization)
+
+    @app.post("/auth/logout")
+    async def logout(authorization: str | None = Header(default=None)):
+        token = authorization.removeprefix("Bearer ").strip() if authorization else ""
+        current_user(authorization)
+        users.logout(token)
+        return {"ok": True}
+
+    @app.get("/conversations")
+    async def conversations(authorization: str | None = Header(default=None)):
+        return {"conversations": users.list_conversations(current_user(authorization)["id"])}
+
+    @app.put("/conversations/{conversation_id}")
+    async def save_conversation(conversation_id: str, req: ConversationRequest,
+                                authorization: str | None = Header(default=None)):
+        if req.id != conversation_id:
+            raise HTTPException(status_code=400, detail={"code": "INVALID_CONVERSATION", "message": "对话 ID 不一致"})
+        try:
+            return users.save_conversation(current_user(authorization)["id"], req.model_dump())
+        except ConflictError as exc:
+            raise HTTPException(status_code=409, detail={"code": "WRITE_CONFLICT", "message": str(exc)})
+
+    @app.delete("/conversations/{conversation_id}")
+    async def delete_conversation(conversation_id: str, x_conversation_version: int = Header(...),
+                                  authorization: str | None = Header(default=None)):
+        try:
+            users.delete_conversation(current_user(authorization)["id"], conversation_id, x_conversation_version)
+        except ConflictError as exc:
+            raise HTTPException(status_code=409, detail={"code": "WRITE_CONFLICT", "message": str(exc)})
+        return {"deleted": True}
 
     @app.post("/review", response_model=ReviewResponse)
     async def create_review(req: ReviewRequest):
@@ -67,18 +129,23 @@ def register_routes(app):
         return result
 
     @app.post("/jobs/review", response_model=JobAcceptedResponse, status_code=202)
-    async def submit_review(req: ReviewRequest):
+    async def submit_review(req: OwnedReviewRequest,
+                            authorization: str | None = Header(default=None)):
         """Submit non-blocking review; consume plan/status/result via SSE."""
+        user = current_user(authorization)
+        repo_path = repositories.path_for_owner(req.repo_id, user["id"])
+        if not repo_path:
+            raise HTTPException(status_code=404, detail={"code": "REPO_NOT_FOUND", "message": "仓库不存在或无权访问"})
         run_id = new_id("run")
         created_at = datetime.now(timezone.utc).isoformat()
 
         def work(progress):
             t0 = time.perf_counter()
             local_pipeline = ReviewPipeline()
-            output = local_pipeline.run(req.repo_path, req.base_ref, req.head_ref,
+            output = local_pipeline.run(repo_path, req.base_ref, req.head_ref,
                                         on_plan=lambda plan: progress("plan", plan))
             result = {
-                "run_id": run_id, "repo_url": req.repo_path,
+                "run_id": run_id, "repo_url": req.repo_id,
                 "base_ref": req.base_ref, "head_ref": req.head_ref,
                 "created_at": created_at, "plan": output.plan,
                 "change_set": output.change_set,
@@ -92,11 +159,11 @@ def register_routes(app):
             return result
 
         try:
-            job = await jobs.submit(run_id, "review", work)
+            job = await jobs.submit(run_id, "review", user["id"], work)
         except RuntimeError as exc:
             raise HTTPException(status_code=429, detail={"code": "JOB_CAPACITY", "message": str(exc)})
         return JobAcceptedResponse(job_id=job.id, status=job.status,
-                                   stream_url=f"/jobs/{job.id}/events",
+                                   stream_url=f"/jobs/{job.id}/events?stream_key={job.stream_key}",
                                    result_url=f"/jobs/{job.id}")
 
     @app.post("/investigate", response_model=InvestigateResponse)
@@ -111,37 +178,42 @@ def register_routes(app):
         return result.to_dict()
 
     @app.post("/jobs/investigate", response_model=JobAcceptedResponse, status_code=202)
-    async def submit_investigation(req: InvestigateRequest):
+    async def submit_investigation(req: OwnedInvestigateRequest,
+                                   authorization: str | None = Header(default=None)):
+        user = current_user(authorization)
+        repo_path = repositories.path_for_owner(req.repo_id, user["id"])
+        if not repo_path:
+            raise HTTPException(status_code=404, detail={"code": "REPO_NOT_FOUND", "message": "仓库不存在或无权访问"})
         job_id = new_id("investigation")
 
         def work(progress):
             # InvestigationAgent currently exposes its plan with the final
             # result; emit status immediately and plan/result once available.
             progress("phase", {"name": "investigation"})
-            result = InvestigationAgent().investigate(req.repo_path, req.question).to_dict()
+            result = InvestigationAgent().investigate(repo_path, req.question).to_dict()
             progress("plan", result.get("plan", []))
             return result
 
         try:
-            job = await jobs.submit(job_id, "investigate", work)
+            job = await jobs.submit(job_id, "investigate", user["id"], work)
         except RuntimeError as exc:
             raise HTTPException(status_code=429, detail={"code": "JOB_CAPACITY", "message": str(exc)})
         return JobAcceptedResponse(job_id=job.id, status=job.status,
-                                   stream_url=f"/jobs/{job.id}/events",
+                                   stream_url=f"/jobs/{job.id}/events?stream_key={job.stream_key}",
                                    result_url=f"/jobs/{job.id}")
 
     @app.get("/jobs/{job_id}")
-    async def get_job(job_id: str):
-        job = jobs.get(job_id)
+    async def get_job(job_id: str, authorization: str | None = Header(default=None)):
+        job = jobs.get_for_owner(job_id, current_user(authorization)["id"])
         if not job:
             raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": job_id})
         return {"job_id": job.id, "kind": job.kind, "status": job.status,
                 "result": job.result, "error": job.error}
 
     @app.get("/jobs/{job_id}/events")
-    async def stream_job(job_id: str):
+    async def stream_job(job_id: str, stream_key: str = ""):
         job = jobs.get(job_id)
-        if not job:
+        if not job or not stream_key or job.stream_key != stream_key:
             raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": job_id})
 
         async def event_stream():
@@ -183,3 +255,26 @@ def register_routes(app):
             status_code=exc.status_code,
             content={"error": exc.detail},
         )
+    @app.get("/", include_in_schema=False)
+    async def web_app():
+        return FileResponse(WEB_DIR / "index.html")
+
+    @app.get("/ui/{asset_name}", include_in_schema=False)
+    async def web_asset(asset_name: str):
+        if asset_name not in {"styles.css", "app.js"}:
+            raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": asset_name})
+        return FileResponse(WEB_DIR / asset_name)
+
+    @app.post("/repos/import/local")
+    async def import_local_repository(files: list[UploadFile] = File(...), paths: str = Form(...), authorization: str | None = Header(default=None)):
+        try:
+            return repositories.import_files(files, paths, current_user(authorization)["id"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "IMPORT_FAILED", "message": str(exc)})
+
+    @app.post("/repos/import/github")
+    async def import_github_repository(req: GitHubImportRequest, authorization: str | None = Header(default=None)):
+        try:
+            return repositories.import_github(req.url, current_user(authorization)["id"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "IMPORT_FAILED", "message": str(exc)})

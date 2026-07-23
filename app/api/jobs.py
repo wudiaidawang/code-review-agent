@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+import secrets
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -22,6 +23,8 @@ MAX_WORKERS = int(os.getenv("API_MAX_WORKERS", "8"))
 class Job:
     id: str
     kind: str
+    owner_id: str = ""
+    stream_key: str = field(default_factory=lambda: secrets.token_urlsafe(24))
     created_at: float = field(default_factory=time.time)
     status: str = "queued"
     result: dict | None = None
@@ -36,10 +39,11 @@ class AsyncJobManager:
         self._workers = asyncio.Semaphore(max_workers)
 
     async def submit(self, job_id: str, kind: str,
+                     owner_id: str,
                      work: Callable[[Callable[[str, Any], None]], Any]) -> Job:
         if len([j for j in self.jobs.values() if j.status in {"queued", "running"}]) >= self.max_active:
             raise RuntimeError("job capacity reached")
-        job = Job(id=job_id, kind=kind)
+        job = Job(id=job_id, kind=kind, owner_id=owner_id)
         self.jobs[job_id] = job
         await self._emit(job, "queued", {"position": "accepted"})
         asyncio.create_task(self._run(job, work))
@@ -70,3 +74,7 @@ class AsyncJobManager:
 
     def get(self, job_id: str) -> Job | None:
         return self.jobs.get(job_id)
+
+    def get_for_owner(self, job_id: str, owner_id: str) -> Job | None:
+        job = self.jobs.get(job_id)
+        return job if job and secrets.compare_digest(job.owner_id, owner_id) else None

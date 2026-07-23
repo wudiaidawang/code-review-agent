@@ -318,6 +318,23 @@ class InvestigationAgent:
         t0 = time.perf_counter()
         abs_path = os.path.abspath(repo_path)
 
+        # Routes, project layout, UI entry points, and pipeline locations are
+        # structural questions rather than symbol relations.  Give them a
+        # bounded, evidence-backed code map before entering Slot closure.
+        from app.agent.codebase_qa import answer as answer_codebase_question
+        mapped = answer_codebase_question(
+            question, abs_path, _get_repo_commit(abs_path), self.call_llm)
+        if mapped is not None:
+            result = InvestigationResult(
+                question=question, answer=mapped.answer, evidence=mapped.evidence,
+                files_visited=mapped.files_visited, plan=mapped.plan,
+                trace=mapped.trace, final_contract_met=True,
+                stop_reason="CODEBASE_QA_CLOSED",
+            )
+            result.duration_ms = (time.perf_counter() - t0) * 1000
+            result.investigation_id = self._new_investigation_id(question)
+            return result
+
         # ── Phase 1: LLM 分解任务（V24: relation 驱动）──────────────
         tasks, required_claims, planner_output = self._plan_question(question)
         if not tasks:

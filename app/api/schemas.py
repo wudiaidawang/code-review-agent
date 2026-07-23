@@ -18,6 +18,17 @@ class InvestigateRequest(BaseModel):
     question: str = Field(..., description="关于代码库的问题（中文/英文）")
 
 
+class OwnedInvestigateRequest(BaseModel):
+    repo_id: str = Field(..., min_length=16, max_length=80)
+    question: str = Field(..., min_length=1, max_length=4000)
+
+
+class OwnedReviewRequest(BaseModel):
+    repo_id: str = Field(..., min_length=16, max_length=80)
+    base_ref: str = Field(default="HEAD~1", min_length=1, max_length=128)
+    head_ref: str = Field(default="HEAD", min_length=1, max_length=128)
+
+
 class InvestigateResponse(BaseModel):
     question: str
     answer: str
@@ -38,6 +49,23 @@ class JobAcceptedResponse(BaseModel):
     status: str
     stream_url: str
     result_url: str
+
+
+class GitHubImportRequest(BaseModel):
+    url: str = Field(..., description="GitHub 公开仓库 HTTPS 地址")
+
+
+class AuthRequest(BaseModel):
+    username: str
+    password: str
+
+
+class ConversationRequest(BaseModel):
+    id: str
+    title: str = "新建调查"
+    repo: dict | None = None
+    messages: list[dict] = []
+    version: int = Field(default=0, ge=0)
 
 
 class ErrorDetail(BaseModel):

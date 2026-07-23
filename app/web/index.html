@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CodeLens · 代码调查</title>
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <section id="auth-screen" class="auth-screen"><div class="auth-card"><div class="empty-icon">⌘</div><h2>登录 CodeLens</h2><p>登录后，对话历史将和其他用户隔离保存。</p><input id="auth-username" placeholder="用户名" autocomplete="username" /><input id="auth-password" type="password" placeholder="密码（至少 8 位）" autocomplete="current-password" /><p id="auth-error" class="auth-error"></p><button id="auth-login" class="primary-button">登录</button><button id="auth-register" class="quiet-button">注册账号</button></div></section>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">⌘</span><span>CodeLens</span></div>
+      <button id="new-chat" class="new-chat">＋ 新建对话</button>
+      <p class="side-label">对话历史</p>
+      <nav id="history" class="history" aria-label="对话历史"></nav>
+      <div class="side-footer"><span class="status-dot"></span><span id="user-name">未登录</span> <button id="logout" class="logout">退出</button></div>
+    </aside>
+    <main class="workspace">
+      <header class="topbar">
+        <div><h1 id="chat-title">新建调查</h1><p id="repo-label">请先导入一个代码仓库</p></div>
+        <button id="clear-chat" class="quiet-button">清空对话</button>
+      </header>
+      <section id="empty-state" class="empty-state">
+        <div class="empty-icon">⌘</div>
+        <h2>开始一次代码调查</h2>
+        <p>导入本地代码文件夹，或粘贴 GitHub 公开仓库地址。</p>
+        <div class="import-grid">
+          <label class="import-card" for="folder-input"><span class="card-icon">▣</span><strong>导入本地代码</strong><small>选择一个本地文件夹</small></label>
+          <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
+          <button id="github-open" class="import-card"><span class="card-icon">↗</span><strong>从 GitHub 引入</strong><small>粘贴公开仓库地址</small></button>
+        </div>
+      </section>
+      <section id="chat" class="chat" hidden></section>
+      <div id="github-panel" class="github-panel" hidden>
+        <input id="github-url" type="url" placeholder="https://github.com/owner/repository" />
+        <button id="github-import" class="primary-button">引入仓库</button>
+      </div>
+      <form id="composer" class="composer" hidden>
+        <select id="work-mode" aria-label="工作模式"><option value="investigate">代码调查</option><option value="review">变更审查</option></select>
+        <span id="review-refs" hidden><input id="base-ref" value="HEAD~1" aria-label="基准版本" /><input id="head-ref" value="HEAD" aria-label="目标版本" /></span>
+        <textarea id="question" rows="1" placeholder="问问这个代码库：调用链、实现位置、设计原因…" required></textarea>
+        <button class="send-button" aria-label="发送问题">↑</button>
+      </form>
+      <p id="hint" class="hint">所有回答均基于 Agent 找到的 Evidence（证据）。</p>
+    </main>
+  </div>
+  <template id="message-template"><article class="message"><div class="avatar"></div><div class="bubble"><div class="message-title"></div><div class="message-body"></div></div></article></template>
+  <script src="/ui/app.js"></script>
+</body>
+</html>
